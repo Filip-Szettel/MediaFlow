@@ -1,412 +1,343 @@
-// server.js - Pełny backend w czystym Node.js dla prototypu FFmpeg Media Manager
-// Symuluje konwersję multimediów z FFmpeg, obsługuje API dla SPA front-endu
-// Używa wbudowanych modułów: http, fs, path, url, child_process (dla symulacji CLI FFmpeg)
-// Brak zewnętrznych zależności; storage w plikach JSON dla prostoty (tasks.json, history.json)
-// Uruchomienie: node server.js (serwer na porcie 3000)
-
+// server.js - Poprawiony dla batch konwersji (JSON files) i walidacji fields
 const http = require('http');
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
-const url = require('url');
 const { spawn } = require('child_process');
+const { randomUUID } = require('crypto');
+const url = require('url');
 
 // Konfiguracja
-const PORT = 3000;
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const OUTPUT_DIR = path.join(__dirname, 'outputs');
-const TASKS_FILE = path.join(__dirname, 'tasks.json');
-const HISTORY_FILE = path.join(__dirname, 'history.json');
+const config = {
+    port: 3000,
+    uploadsDir: path.join(__dirname, 'uploads'),
+    convertedDir: path.join(__dirname, 'converted'),
+    wwwRoot: __dirname,
+    maxFileSize: 1024 * 1024 * 100, // 100MB
+    supportedNameRegex: /^[A-Za-z0-9\-_.\s]{1,255}$/,
+    supportedFilenameRegex: /^[A-Za-z0-9\-_.\s]{1,251}\.[A-Za-z0-9]{3,4}$/
+};
 
-// Utwórz katalogi jeśli nie istnieją
-[UPLOAD_DIR, OUTPUT_DIR].forEach(dir => {
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-});
+// Funkcje narzędziowe
+const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// Inicjalizuj storage (w pamięci + persistencja)
-let tasks = loadJson(TASKS_FILE, []);
-let history = loadJson(HISTORY_FILE, []);
-let taskQueue = []; // Kolejka zadań do przetwarzania
-let activeProcesses = new Map(); // Aktywne procesy konwersji
-
-// EventEmitter dla symulacji postępu (jak w diagramie)
-const EventEmitter = require('events');
-const progressEmitter = new EventEmitter();
-
-// Funkcje pomocnicze
-function loadJson(file, defaultValue) {
+const ensureDir = async (dirPath) => {
     try {
-        return JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch (err) {
-        return defaultValue;
+        await fs.access(dirPath);
+    } catch {
+        await fs.mkdir(dirPath, { recursive: true });
     }
-}
+};
 
-function saveJson(file, data) {
-    fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
-
-function generateTaskId() {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2);
-}
-
-function validateFile(file) {
-    const allowedTypes = ['video/mp4', 'video/avi', 'video/mov', 'video/webm'];
-    if (!allowedTypes.includes(file.type)) {
-        throw new Error('Nieobsługiwany typ pliku wideo.');
+const getFilesInDir = async (dirPath) => {
+    try {
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
+        return entries
+            .filter(entry => entry.isFile())
+            .map(entry => entry.name)
+            .sort();
+    } catch {
+        return [];
     }
-    if (file.size > 200 * 1024 * 1024) { // 200MB
-        throw new Error('Plik przekracza limit rozmiaru (200MB).');
-    }
-    return true;
-}
+};
 
-function simulateFFmpegConversion(inputPath, outputPath, params, taskId) {
-    // Symulacja FFmpeg via child_process.spawn (mock CLI)
-    // W rzeczywistości: spawn('ffmpeg', args); tu symulujemy z opóźnieniem i eventami
-    console.log(`Symulacja FFmpeg dla zadania ${taskId}: ${inputPath} -> ${outputPath}`);
-    console.log('Parametry:', params);
+const validateFile = (name, filename, size) => {
+    if (!config.supportedNameRegex.test(name)) throw new Error(`Nieprawidłowa nazwa parametru: ${name}`);
+    if (filename && !config.supportedFilenameRegex.test(filename)) throw new Error(`Nieprawidłowa nazwa pliku: ${filename}`);
+    if (filename && size <= 0) throw new Error('Plik pusty'); // Walidacja tylko dla plików, pomijaj puste fields
+    if (size > config.maxFileSize && filename) throw new Error(`Plik za duży: ${size} > ${config.maxFileSize}`);
+};
 
-    let progress = 0;
-    const interval = setInterval(() => {
-        progress += Math.random() * 15;
-        if (progress > 100) progress = 100;
-        updateTaskProgress(taskId, Math.floor(progress));
-        progressEmitter.emit(`progress:${taskId}`, { progress, step: getCurrentStep(progress) });
+const saveFile = async (content, filename) => {
+    const safeName = filename.replace(/[^A-Za-z0-9\-_.\s]/g, '_');
+    const filePath = path.join(config.uploadsDir, safeName);
+    await fs.writeFile(filePath, content);
+    return safeName;
+};
 
-        if (progress >= 100) {
-            clearInterval(interval);
-            // Symuluj utworzenie pliku wyjściowego (mock blob-like)
-            fs.writeFileSync(outputPath, `Mock converted file: ${path.basename(inputPath)}\nFormat: ${params.outputFormat}\n${JSON.stringify(params, null, 2)}`);
-            completeTask(taskId, outputPath);
+// Parsowanie multipart (obsługuje multiple fields o tej samej nazwie jako array, walidacja pomija size=0 dla fields)
+const parseMultipart = (fullBody, contentType) => {
+    const boundaryMatch = contentType.match(/boundary=([^;]+)/);
+    if (!boundaryMatch) throw new Error('Brak boundary w Content-Type');
+    const boundary = `--${boundaryMatch[1]}`;
+    const bodyStr = fullBody.toString('latin1');
+    const boundaryReg = new RegExp(escapeRegExp(boundary), 'g');
+    const parts = bodyStr.split(boundaryReg).slice(1, -1);
+
+    const fields = {};
+    const files = [];
+
+    parts.forEach(part => {
+        const [headersStr, ...contentParts] = part.split('\r\n\r\n');
+        const content = contentParts.join('\r\n\r\n').replace(/\r?\n?$/, '');
+        const headers = (headersStr || '').split('\r\n').reduce((acc, header) => {
+            const match = header.match(/^([^:]+):\s*(.*)$/);
+            return match ? { ...acc, [match[1].toLowerCase()]: match[2] } : acc;
+        }, {});
+
+        const dispositionMatch = headers['content-disposition'] ? headers['content-disposition'].match(/name="([^"]+)"(?:; filename="([^"]+)")?/) : null;
+        if (!dispositionMatch) return;
+
+        const [_, name, filename] = dispositionMatch;
+        const size = Buffer.from(content, 'latin1').length;
+        validateFile(name, filename, size);
+
+        if (filename) {
+            const fileContent = Buffer.from(content, 'latin1');
+            files.push({ filename: filename.replace(/"/g, ''), content: fileContent, contentType: headers['content-type'] || '' });
+        } else {
+            // Fields - obsługa multiple, bez usuwania cudzysłowów
+            if (fields[name]) {
+                if (!Array.isArray(fields[name])) fields[name] = [fields[name]];
+                fields[name].push(content);
+            } else {
+                fields[name] = content;
+            }
         }
-    }, 800); // Symuluj etapy co 800ms
+    });
 
-    activeProcesses.set(taskId, { interval, process: null }); // Mock process
-}
+    return { fields, files };
+};
 
-function getCurrentStep(progress) {
-    if (progress < 25) return 'init';
-    if (progress < 50) return 'video';
-    if (progress < 75) return 'audio';
-    return 'mux';
-}
+// Funkcja konwersji
+const convertFile = async (inputFile, format, resolution, crf, bitrate) => {
+    const inputPath = path.join(config.uploadsDir, inputFile);
+    const outputName = inputFile.replace(/\.[^/.]+$/, `.${format}`);
+    const outputPath = path.join(config.convertedDir, outputName);
 
-function updateTaskProgress(taskId, progress) {
-    const task = tasks.find(t => t.id === taskId);
-    if (task) {
-        task.progress = progress;
-        saveTasks();
-    }
-}
+    const ffmpegArgs = ['-i', inputPath];
+    if (resolution) ffmpegArgs.push('-s', resolution);
+    if (bitrate) ffmpegArgs.push('-b:v', bitrate);
+    ffmpegArgs.push('-crf', crf, outputPath);
 
-function completeTask(taskId, outputPath) {
-    const task = tasks.find(t => t.id === taskId);
-    if (task) {
-        task.status = 'completed';
-        task.completed = new Date().toISOString();
-        task.outputPath = outputPath;
-        saveTasks();
-        // Przenieś do historii
-        const histEntry = { ...task };
-        history.unshift(histEntry);
-        saveHistory();
-        // Emit completion
-        progressEmitter.emit(`complete:${taskId}`, histEntry);
-        activeProcesses.delete(taskId);
-    }
-}
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: 'inherit' });
+    await new Promise((resolve, reject) => {
+        ffmpeg.on('close', (code) => code === 0 ? resolve(outputName) : reject(new Error(`FFmpeg error: ${code}`)));
+    });
 
-function cancelTask(taskId) {
-    const proc = activeProcesses.get(taskId);
-    if (proc) {
-        clearInterval(proc.interval);
-        // proc.process.kill(); // W rzeczywistości
-        activeProcesses.delete(taskId);
-    }
-    const task = tasks.find(t => t.id === taskId);
-    if (task) {
-        task.status = 'cancelled';
-        saveTasks();
-    }
-}
+    await fs.unlink(inputPath).catch(() => {});
+    return outputName;
+};
 
-function saveTasks() {
-    saveJson(TASKS_FILE, tasks);
-}
-
-function saveHistory() {
-    saveJson(HISTORY_FILE, history);
-}
-
-// Obsługa kolejki zadań (jak w diagramie: queue task)
-function queueTask(filePath, params, taskId) {
-    const task = {
-        id: taskId,
-        name: path.basename(filePath),
-        status: 'queued',
-        progress: 0,
-        started: new Date().toISOString(),
-        params,
-        inputPath: filePath
-    };
-    tasks.unshift(task);
-    saveTasks();
-    taskQueue.push({ taskId, filePath, params });
-    processQueue();
-}
-
-function processQueue() {
-    if (taskQueue.length > 0 && activeProcesses.size === 0) { // Tylko jedno zadanie na raz
-        const { taskId, filePath, params } = taskQueue.shift();
-        const task = tasks.find(t => t.id === taskId);
-        if (task && task.status === 'queued') {
-            task.status = 'processing';
-            saveTasks();
-            const outputName = path.basename(filePath, path.extname(filePath)) + '_converted.' + params.outputFormat;
-            const outputPath = path.join(OUTPUT_DIR, outputName);
-            simulateFFmpegConversion(filePath, outputPath, params, taskId);
-        }
-    }
-}
-
-// Serwer HTTP
-const server = http.createServer((req, res) => {
-    const parsedUrl = url.parse(req.url, true);
-    const method = req.method;
+// Obsługa requestu
+const handleRequest = async (req, res) => {
+    const { pathname } = url.parse(req.url);
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    if (method === 'OPTIONS') {
+    if (req.method === 'OPTIONS') {
         res.writeHead(200);
         res.end();
         return;
     }
 
-    // POST /upload - Upload pliku (multipart/form-data symulacja via raw body)
-    if (parsedUrl.pathname === '/upload' && method === 'POST') {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${pathname}`); // Opcjonalny log dla debugowania
+
+    // SPECJALNE ENDPOINTY - PRZED STATYCZNYMI PLIKAMI!
+    if (pathname === '/files' && req.method === 'GET') {
+        await Promise.all([ensureDir(config.uploadsDir), ensureDir(config.convertedDir)]);
+        const [uploads, converted] = await Promise.all([
+            getFilesInDir(config.uploadsDir),
+            getFilesInDir(config.convertedDir)
+        ]);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ uploads, converted }));
+        return;
+    }
+
+    if (pathname === '/upload' && req.method === 'POST') {
         let body = [];
         req.on('data', chunk => body.push(chunk));
-        req.on('end', () => {
-            const buffer = Buffer.concat(body);
-            // Symuluj parsowanie (w rzeczywistości użyj multiparty, ale czysto: załóż base64 lub raw)
-            // Dla prostoty: załóż, że body to JSON z { name, type, size, data: base64 }
+        req.on('end', async () => {
             try {
-                const data = JSON.parse(buffer.toString());
-                validateFile({ name: data.name, type: data.type, size: Buffer.from(data.data, 'base64').length });
-                const filePath = path.join(UPLOAD_DIR, data.name);
-                fs.writeFileSync(filePath, Buffer.from(data.data, 'base64'));
+                const fullBody = Buffer.concat(body);
+                const contentType = req.headers['content-type'] || '';
+                if (!contentType.includes('multipart/form-data')) throw new Error('Nieobsługiwany Content-Type');
+
+                const { files } = parseMultipart(fullBody, contentType);
+                await ensureDir(config.uploadsDir);
+
+                const savedFiles = await Promise.all(
+                    files.map(async ({ filename, content }) => saveFile(content, filename || randomUUID() + '.bin'))
+                );
+
+                console.log('Zapisane pliki:', savedFiles);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true, filePath, message: 'Plik załadowany' }));
-            } catch (err) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, error: err.message }));
+                res.end(JSON.stringify({ success: true, files: savedFiles }));
+            } catch (error) {
+                console.error('Błąd uploadu:', error);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: error.message }));
             }
         });
         return;
     }
 
-    // POST /convert - Rozpocznij konwersję
-    if (parsedUrl.pathname === '/convert' && method === 'POST') {
+    if (pathname === '/convert' && req.method === 'POST') {
         let body = [];
         req.on('data', chunk => body.push(chunk));
-        req.on('end', () => {
+        req.on('end', async () => {
             try {
-                const { filePath, params } = JSON.parse(buffer.toString());
-                const taskId = generateTaskId();
-                queueTask(filePath, params, taskId);
+                const fullBody = Buffer.concat(body);
+                const contentType = req.headers['content-type'] || '';
+                if (!contentType.includes('multipart/form-data')) throw new Error('Nieobsługiwany Content-Type');
+
+                const { fields } = parseMultipart(fullBody, contentType);
+                const filesJson = fields.files;
+                if (!filesJson) throw new Error('Brak plików do konwersji');
+                const inputFiles = Array.isArray(filesJson) ? filesJson : JSON.parse(filesJson);
+                const format = fields.format || 'mp4';
+                const resolution = fields.resolution || '';
+                const crf = fields.crf || '23';
+                const bitrate = fields.bitrate || '';
+
+                await ensureDir(config.convertedDir);
+
+                const outputs = await Promise.all(
+                    inputFiles.map(inputFile => convertFile(inputFile, format, resolution, crf, bitrate))
+                );
+
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true, taskId, message: 'Zadanie dodane do kolejki' }));
-            } catch (err) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, error: err.message }));
+                res.end(JSON.stringify({ success: true, outputs }));
+            } catch (error) {
+                console.error('Błąd konwersji:', error);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: error.message }));
             }
         });
         return;
     }
 
-    // GET /progress/:taskId - Pobierz postęp
-    if (parsedUrl.pathname.startsWith('/progress/') && method === 'GET') {
-        const taskId = parsedUrl.pathname.split('/')[2];
-        const task = tasks.find(t => t.id === taskId);
-        if (task) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(task));
-        } else {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Zadanie nie znalezione' }));
-        }
-        return;
-    }
-
-    // PUT /progress/:taskId - Aktualizuj (używane wewnętrznie, ale dla API)
-    if (parsedUrl.pathname.startsWith('/progress/') && method === 'PUT') {
-        const taskId = parsedUrl.pathname.split('/')[2];
-        let body = [];
-        req.on('data', chunk => body.push(chunk));
-        req.on('end', () => {
-            try {
-                const updates = JSON.parse(buffer.toString());
-                const task = tasks.find(t => t.id === taskId);
-                if (task) {
-                    Object.assign(task, updates);
-                    saveTasks();
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: true }));
-                } else {
-                    res.writeHead(404);
-                    res.end();
-                }
-            } catch (err) {
-                res.writeHead(400);
-                res.end();
-            }
-        });
-        return;
-    }
-
-    // DELETE /progress/:taskId - Anuluj zadanie
-    if (parsedUrl.pathname.startsWith('/progress/') && method === 'DELETE') {
-        const taskId = parsedUrl.pathname.split('/')[2];
-        cancelTask(taskId);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, message: 'Zadanie anulowane' }));
-        return;
-    }
-
-    // GET /download/:taskId - Pobierz wynik
-    if (parsedUrl.pathname.startsWith('/download/') && method === 'GET') {
-        const taskId = parsedUrl.pathname.split('/')[2];
-        const task = tasks.find(t => t.id === taskId) || history.find(h => h.id === taskId);
-        if (task && task.outputPath && fs.existsSync(task.outputPath)) {
-            const fileStream = fs.createReadStream(task.outputPath);
-            res.writeHead(200, {
-                'Content-Type': 'video/mp4', // Domyślnie; dostosuj wg params
-                'Content-Disposition': `attachment; filename="${task.name}_converted.mp4"`
-            });
-            fileStream.pipe(res);
-        } else {
-            res.writeHead(404);
-            res.end('Plik nie znaleziony');
-        }
-        return;
-    }
-
-    // GET /history - Pobierz historię
-    if (parsedUrl.pathname === '/history' && method === 'GET') {
-        const { search, sort } = parsedUrl.query;
-        let filtered = [...history];
-        if (search) {
-            filtered = filtered.filter(h => h.name.toLowerCase().includes(search.toLowerCase()));
-        }
-        // Sort (prosty: date-desc default)
-        filtered.sort((a, b) => sort === 'date-asc' ? new Date(a.completed) - new Date(b.completed) : new Date(b.completed) - new Date(a.completed));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(filtered));
-        return;
-    }
-
-    // GET /tasks - Pobierz aktywne zadania
-    if (parsedUrl.pathname === '/tasks' && method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(tasks));
-        return;
-    }
-
-    // DELETE /tasks/:taskId - Usuń zadanie
-    if (parsedUrl.pathname.startsWith('/tasks/') && method === 'DELETE') {
-        const taskId = parsedUrl.pathname.split('/')[2];
-        tasks = tasks.filter(t => t.id !== taskId);
-        saveTasks();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-        return;
-    }
-
-    // DELETE /history/:taskId - Usuń z historii
-    if (parsedUrl.pathname.startsWith('/history/') && method === 'DELETE') {
-        const taskId = parsedUrl.pathname.split('/')[2];
-        history = history.filter(h => h.id !== taskId);
-        saveHistory();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-        return;
-    }
-
-    // DELETE /history - Wyczyść historię
-    if (parsedUrl.pathname === '/history' && method === 'DELETE') {
-        history = [];
-        saveHistory();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-        return;
-    }
-
-    // DELETE /tasks - Wyczyść zadania
-    if (parsedUrl.pathname === '/tasks' && method === 'DELETE') {
-        tasks = [];
-        saveTasks();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-        return;
-    }
-
-    // Obsługa statycznych plików (front-end)
-    if (parsedUrl.pathname === '/' || parsedUrl.pathname === '/index.html') {
-        const filePath = path.join(__dirname, 'index.html');
-        if (fs.existsSync(filePath)) {
-            const content = fs.readFileSync(filePath);
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(content);
-        } else {
-            res.writeHead(404);
-            res.end('Front-end nie znaleziony');
-        }
-        return;
-    }
-
-    // 404 dla nieznanych
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Nie znaleziono');
-});
-
-// WebSocket-like via long-polling dla postępu (symulacja EventEmitter)
-server.on('request', (req, res) => {
-    if (req.url === '/events' && req.method === 'GET') {
-        const taskId = req.url.split('?')[1]?.split('=')[1]; // ?taskId=xxx
-        if (taskId) {
-            res.writeHead(200, {
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive'
-            });
-            const listener = (data) => {
-                if (data.taskId === taskId) { // Filtruj po taskId
-                    res.write(`data: ${JSON.stringify(data)}\n\n`);
-                }
-            };
-            progressEmitter.on('progress', listener);
-            req.on('close', () => {
-                progressEmitter.removeListener('progress', listener);
-            });
-        } else {
+    if (pathname.startsWith('/delete/') && req.method === 'DELETE') {
+        const parts = pathname.split('/').slice(2);
+        if (parts.length !== 2) {
             res.writeHead(400);
-            res.end();
+            res.end('Nieprawidłowa ścieżka');
+            return;
+        }
+        const [fileName, dirType] = parts;
+        const dirPath = dirType === 'uploads' ? config.uploadsDir : config.convertedDir;
+        const filePath = path.join(dirPath, decodeURIComponent(fileName));
+        try {
+            await fs.unlink(filePath);
+            res.writeHead(200);
+            res.end('Usunięto');
+        } catch {
+            res.writeHead(404);
+            res.end('Nie znaleziono');
+        }
+        return;
+    }
+
+    // Obsługa download (nowa)
+    if (pathname.startsWith('/download/')) {
+        await ensureDir(config.convertedDir);
+        const fileName = decodeURIComponent(pathname.split('/')[2]);
+        const fullPath = path.join(config.convertedDir, fileName);
+        try {
+            const content = await fs.readFile(fullPath);
+            const ext = path.extname(fileName).toLowerCase();
+            const mimeType = {
+                '.mp4': 'video/mp4',
+                '.webm': 'video/webm',
+                '.avi': 'video/x-msvideo',
+                '.mp3': 'audio/mpeg',
+                '.wav': 'audio/wav',
+                '.gif': 'image/gif',
+                '.jpg': 'image/jpeg',
+                '.png': 'image/png'
+            }[ext] || 'application/octet-stream';
+            res.writeHead(200, { 
+                'Content-Type': mimeType,
+                'Content-Disposition': `attachment; filename="${fileName}"`
+            });
+            res.end(content);
+        } catch {
+            res.writeHead(404);
+            res.end('Nie znaleziono pliku');
+        }
+        return;
+    }
+
+    // Thumbnail/Preview
+    const serveFile = async (pathname, dir, res) => {
+        const fileName = decodeURIComponent(pathname.split('/')[2]);
+        const fullPath = path.join(dir, fileName);
+        try {
+            const content = await fs.readFile(fullPath);
+            const ext = path.extname(fileName).toLowerCase();
+            const mimeType = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.gif': 'image/gif',
+                '.bmp': 'image/bmp',
+                '.webp': 'image/webp',
+                '.mp4': 'video/mp4',
+                '.webm': 'video/webm',
+                '.ogv': 'video/ogg',
+                '.mp3': 'audio/mpeg',
+                '.wav': 'audio/wav'
+            }[ext] || 'application/octet-stream';
+            res.writeHead(200, { 'Content-Type': mimeType });
+            res.end(content);
+        } catch {
+            res.writeHead(404, { 'Content-Type': 'text/html' });
+            res.end('<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:2rem;">📁</div>');
+        }
+    };
+
+    if (pathname.startsWith('/thumbnail/')) {
+        await ensureDir(config.uploadsDir);
+        serveFile(pathname, config.uploadsDir, res);
+        return;
+    }
+
+    if (pathname.startsWith('/preview/')) {
+        await ensureDir(config.convertedDir);
+        serveFile(pathname, config.convertedDir, res);
+        return;
+    }
+
+    // OBSŁUGA PLIKÓW STATYCZNYCH - NA KONIEC, JAKO FALLBACK
+    if (req.method === 'GET' && !pathname.startsWith('/api/') && !pathname.startsWith('/thumbnail/') && !pathname.startsWith('/preview/') && !pathname.startsWith('/download/') && !pathname.startsWith('/delete/')) {
+        const fileName = pathname === '/' ? 'index.html' : pathname.substring(1);
+        const filePath = path.join(config.wwwRoot, fileName);
+        try {
+            const content = await fs.readFile(filePath);
+            const ext = path.extname(filePath).toLowerCase();
+            const mimeType = {
+                '.html': 'text/html',
+                '.css': 'text/css',
+                '.js': 'application/javascript',
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif',
+                '.webp': 'image/webp',
+                '.mp4': 'video/mp4',
+                '.webm': 'video/webm',
+                '.ogv': 'video/ogg'
+            }[ext] || 'application/octet-stream';
+            res.writeHead(200, { 'Content-Type': mimeType });
+            res.end(content);
+            return;
+        } catch (error) {
+            console.error('Błąd serwowania pliku statycznego:', error);
         }
     }
+
+    res.writeHead(404);
+    res.end('Nie znaleziono');
+};
+
+// Serwer
+const server = http.createServer(handleRequest);
+server.listen(config.port, () => {
+    console.log(`Serwer działa na http://localhost:${config.port}`);
 });
 
-// Uruchom serwer
-server.listen(PORT, () => {
-    console.log(`Serwer FFmpeg Media Manager działa na http://localhost:${PORT}`);
-    console.log(`Upload dir: ${UPLOAD_DIR}`);
-    console.log(`Output dir: ${OUTPUT_DIR}`);
-});
-
-// Czyszczenie przy wyjściu
-process.on('SIGINT', () => {
-    activeProcesses.forEach(({ interval }) => clearInterval(interval));
-    process.exit();
-});
+// Inicjalizacja
+Promise.all([ensureDir(config.uploadsDir), ensureDir(config.convertedDir)])
+    .then(() => console.log('Foldery gotowe'))
+    .catch(console.error);

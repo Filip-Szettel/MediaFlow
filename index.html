@@ -3,1163 +3,234 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FFmpeg Media Manager - Zaawansowany Prototyp SPA</title>
-    <style>
-        /* Global Styles */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            color: #333;
-            line-height: 1.6;
-        }
-        #app {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-            min-height: 100vh;
-        }
-        header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 2rem;
-            text-align: center;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }
-        header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 0.5rem;
-        }
-        header p {
-            font-size: 1.1rem;
-            opacity: 0.9;
-        }
-        nav {
-            background: rgba(255,255,255,0.95);
-            backdrop-filter: blur(10px);
-            padding: 1rem;
-            margin-bottom: 30px;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        }
-        nav ul {
-            list-style: none;
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-            flex-wrap: wrap;
-        }
-        nav a {
-            color: #333;
-            text-decoration: none;
-            padding: 0.75rem 1.5rem;
-            border-radius: 25px;
-            transition: all 0.3s ease;
-            font-weight: 500;
-            position: relative;
-        }
-        nav a:hover, nav a.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-        }
-        .view {
-            display: none;
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            margin-bottom: 30px;
-        }
-        .view.active {
-            display: block;
-            animation: fadeIn 0.5s ease-in;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        h1, h2 {
-            margin-bottom: 1.5rem;
-            color: #2c3e50;
-        }
-        .section {
-            margin-bottom: 2rem;
-        }
-        /* Dashboard */
-        .task-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-        }
-        .task-card {
-            border: 1px solid #e0e0e0;
-            padding: 20px;
-            border-radius: 12px;
-            background: #fafafa;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-        .task-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
-        }
-        .task-card.completed {
-            border-left: 5px solid #27ae60;
-        }
-        .task-card.processing {
-            border-left: 5px solid #f39c12;
-        }
-        .task-card.error {
-            border-left: 5px solid #e74c3c;
-        }
-        .task-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        .task-actions {
-            display: flex;
-            gap: 10px;
-        }
-        .btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 0.9rem;
-        }
-        .btn-primary { background: #3498db; color: white; }
-        .btn-primary:hover { background: #2980b9; }
-        .btn-secondary { background: #95a5a6; color: white; }
-        .btn-secondary:hover { background: #7f8c8d; }
-        .btn-danger { background: #e74c3c; color: white; }
-        .btn-danger:hover { background: #c0392b; }
-        /* Upload */
-        .upload-zone {
-            border: 3px dashed #3498db;
-            border-radius: 12px;
-            padding: 50px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            background: #f8f9fa;
-        }
-        .upload-zone:hover, .upload-zone.dragover {
-            border-color: #2980b9;
-            background: #e3f2fd;
-            transform: scale(1.02);
-        }
-        .upload-zone i {
-            font-size: 4rem;
-            color: #3498db;
-            margin-bottom: 1rem;
-            display: block;
-        }
-        #filePreview {
-            margin-top: 20px;
-            text-align: center;
-        }
-        #videoPreview {
-            max-width: 100%;
-            max-height: 300px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .file-details {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px;
-            margin-top: 15px;
-            padding: 15px;
-            background: #ecf0f1;
-            border-radius: 8px;
-        }
-        /* Converter */
-        form {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-        .form-group {
-            display: flex;
-            flex-direction: column;
-        }
-        label {
-            font-weight: 600;
-            margin-bottom: 5px;
-            color: #2c3e50;
-        }
-        input, select, textarea {
-            padding: 12px;
-            border: 2px solid #bdc3c7;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: border-color 0.3s ease;
-        }
-        input:focus, select:focus, textarea:focus {
-            outline: none;
-            border-color: #3498db;
-            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
-        }
-        .full-width {
-            grid-column: 1 / -1;
-        }
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .checkbox-group input[type="checkbox"] {
-            width: auto;
-            padding: 0;
-        }
-        /* Progress */
-        .progress-section {
-            text-align: center;
-            max-width: 600px;
-            margin: 0 auto;
-        }
-        .progress-steps {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 30px;
-            position: relative;
-        }
-        .progress-step {
-            flex: 1;
-            text-align: center;
-            position: relative;
-        }
-        .step-circle {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: #ecf0f1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 10px;
-            font-weight: bold;
-            transition: all 0.3s ease;
-        }
-        .step-circle.active {
-            background: #3498db;
-            color: white;
-        }
-        .step-circle.completed {
-            background: #27ae60;
-            color: white;
-        }
-        .step-line {
-            height: 2px;
-            background: #ecf0f1;
-            position: absolute;
-            top: 19px;
-            width: 100%;
-            z-index: -1;
-            transition: background 0.3s ease;
-        }
-        .step-line.completed {
-            background: #27ae60;
-        }
-        .progress-bar {
-            width: 100%;
-            height: 25px;
-            background: #ecf0f1;
-            border-radius: 12px;
-            overflow: hidden;
-            margin: 20px 0;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #3498db, #2980b9);
-            width: 0%;
-            transition: width 0.5s ease;
-            position: relative;
-        }
-        .progress-fill::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            right: 0;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
-            animation: shimmer 2s infinite;
-        }
-        @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-        }
-        .progress-text {
-            font-size: 1.2rem;
-            font-weight: bold;
-            margin-top: 10px;
-        }
-        .eta {
-            font-size: 0.9rem;
-            color: #7f8c8d;
-            margin-top: 5px;
-        }
-        /* History */
-        .history-controls {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-        .search-input {
-            padding: 10px;
-            border: 2px solid #bdc3c7;
-            border-radius: 8px;
-            flex: 1;
-            min-width: 200px;
-        }
-        .sort-select {
-            padding: 10px;
-            border: 2px solid #bdc3c7;
-            border-radius: 8px;
-        }
-        .history-list {
-            list-style: none;
-        }
-        .history-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            transition: all 0.3s ease;
-        }
-        .history-item:hover {
-            background: #e9ecef;
-            transform: translateX(5px);
-        }
-        .history-details {
-            flex: 1;
-        }
-        .history-meta {
-            font-size: 0.9rem;
-            color: #7f8c8d;
-            margin-top: 5px;
-        }
-        /* Modals */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            backdrop-filter: blur(5px);
-        }
-        .modal.active {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .modal-content {
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            max-width: 500px;
-            width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-        }
-        .close {
-            float: right;
-            font-size: 2rem;
-            cursor: pointer;
-            color: #aaa;
-        }
-        .close:hover {
-            color: #333;
-        }
-        /* Error & Success */
-        .alert {
-            padding: 15px;
-            border-radius: 8px;
-            margin: 15px 0;
-            font-weight: 500;
-        }
-        .alert-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        .alert-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        /* Responsive */
-        @media (max-width: 768px) {
-            form {
-                grid-template-columns: 1fr;
-            }
-            nav ul {
-                flex-direction: column;
-                align-items: center;
-            }
-            .upload-zone {
-                padding: 30px 20px;
-            }
-            .task-grid {
-                grid-template-columns: 1fr;
-            }
-            .history-item {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 10px;
-            }
-        }
-        /* Video Controls */
-        .video-controls {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            margin-top: 10px;
-        }
-        .video-controls button {
-            padding: 5px 10px;
-            font-size: 0.8rem;
-        }
-    </style>
+    <title>FFmpeg Studio - Zaawansowane GUI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="app">
-        <header>
-            <h1>FFmpeg Media Manager</h1>
-            <p>Zaawansowany prototyp platformy do zarządzania i konwersji multimediów z symulacją FFmpeg</p>
-        </header>
-        <nav id="nav">
-            <ul>
-                <li><a href="#dashboard" data-route="dashboard" class="nav-link active">Dashboard</a></li>
-                <li><a href="#upload" data-route="upload" class="nav-link">Upload & Podgląd</a></li>
-                <li><a href="#converter" data-route="converter" class="nav-link">Konwerter</a></li>
-                <li><a href="#progress" data-route="progress" class="nav-link">Postęp Zadań</a></li>
-                <li><a href="#history" data-route="history" class="nav-link">Historia & Pobrania</a></li>
+    <div class="app-layout" id="appLayout">
+        <!-- Sidebar Navigation (Vertical Tabs) -->
+        <aside class="sidebar glass tab" id="sidebar">
+            <div class="logo">
+                <i class="fas fa-video"></i>
+                <span>FFmpeg Studio</span>
+            </div>
+            <ul class="nav-menu">
+                <li>
+                    <button class="tablinks active" onclick="openTab(event, 'pending')" id="defaultOpen">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <span>Do wgrania</span>
+                    </button>
+                </li>
+                <li>
+                    <button class="tablinks" onclick="openTab(event, 'uploads')">
+                        <i class="fas fa-folder-open"></i>
+                        <span>Przed konwersją</span>
+                    </button>
+                </li>
+                <li>
+                    <button class="tablinks" onclick="openTab(event, 'converted')">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Po konwersji</span>
+                    </button>
+                </li>
+                <li>
+                    <button class="tablinks" onclick="openTab(event, 'settings')">
+                        <i class="fas fa-cog"></i>
+                        <span>Ustawienia</span>
+                    </button>
+                </li>
             </ul>
-        </nav>
+            <button class="sidebar-toggle" id="sidebarToggle" title="Zwiń/rozwiń pasek boczny">
+                <i class="fas fa-bars"></i>
+            </button>
+        </aside>
 
-        <!-- Dashboard View -->
-        <div id="dashboard" class="view active">
-            <h2>Dashboard - Przegląd Zadań</h2>
-            <div class="section">
-                <h3>Aktywne Zadania</h3>
-                <div class="task-grid" id="activeTasks">
-                    <!-- Dynamic active tasks -->
+        <!-- Header -->
+        <header class="header" id="header">
+            <div class="section-title">
+                <i class="fas fa-home"></i>
+                <span id="currentTitle">Do wgrania</span>
+            </div>
+            <div class="header-actions">
+                <input type="text" class="search-input" id="globalSearch" placeholder="Szukaj plików...">
+                <button class="btn btn-secondary" onclick="refreshLists()">
+                    <i class="fas fa-refresh"></i> Odśwież
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content (Tab Content Container) -->
+        <main class="main-content tab-content-container" id="mainContent">
+            <!-- Pending Tab -->
+            <div id="pending" class="tabcontent active section">
+                <div class="upload-zone" id="uploadZone">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <h3>Przeciągnij pliki lub kliknij, aby wybrać</h3>
+                    <p style="color: var(--text-secondary); margin-top: 0.5rem;">Obsługiwane: MP4, AVI, MP3, JPG i inne formaty multimedialne</p>
+                    <input type="file" id="fileInput" multiple style="display: none;">
+                    <button class="upload-btn" id="uploadBtn">
+                        <i class="fas fa-plus"></i> Wybierz pliki
+                    </button>
+                    <div class="upload-progress">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="uploadProgressFill"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="section-header">
+                    <div class="section-stats">
+                        <span id="pendingCount">0 plików</span>
+                    </div>
+                </div>
+                <div id="pendingList" class="files-grid"></div>
+                <div id="pendingEmpty" class="empty-state" style="display: none;">
+                    <i class="fas fa-folder-open"></i>
+                    <p>Brak plików do wgrania. Dodaj je za pomocą przycisku powyżej!</p>
                 </div>
             </div>
-            <div class="section">
-                <h3>Ukończone Zadania</h3>
-                <div class="task-grid" id="completedTasks">
-                    <!-- Dynamic completed tasks -->
+
+            <!-- Uploads Tab -->
+            <div id="uploads" class="tabcontent section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-folder-open"></i> Pliki przed konwersją
+                    </h2>
+                    <div class="section-stats">
+                        <span id="uploadsCount">0 plików</span>
+                    </div>
+                    <div class="batch-actions">
+                        <button class="btn btn-secondary" onclick="selectAll('uploads')">
+                            <i class="fas fa-check-square"></i> Zaznacz wszystkie
+                        </button>
+                        <button class="btn btn-primary batch-convert" onclick="batchConvert()" style="display: none;">
+                            <i class="fas fa-magic"></i> Konwertuj zaznaczone
+                        </button>
+                        <button class="btn btn-danger batch-delete" onclick="batchDelete('uploads')" style="display: none;">
+                            <i class="fas fa-trash"></i> Usuń zaznaczone
+                        </button>
+                    </div>
+                </div>
+                <div id="uploadsList" class="files-grid"></div>
+                <div id="uploadsEmpty" class="empty-state" style="display: none;">
+                    <i class="fas fa-folder"></i>
+                    <p>Brak plików do konwersji. Wgraj je z zakładki "Do wgrania".</p>
                 </div>
             </div>
-            <button class="btn btn-primary full-width" onclick="clearAllTasks()">Wyczyść Wszystkie Zadania</button>
+
+            <!-- Converted Tab -->
+            <div id="converted" class="tabcontent section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-check-circle"></i> Pliki po konwersji
+                    </h2>
+                    <div class="section-stats">
+                        <span id="convertedCount">0 plików</span>
+                    </div>
+                    <div class="batch-actions">
+                        <button class="btn btn-secondary" onclick="selectAll('converted')">
+                            <i class="fas fa-check-square"></i> Zaznacz wszystkie
+                        </button>
+                        <button class="btn btn-success batch-download" onclick="batchDownload()" style="display: none;">
+                            <i class="fas fa-download"></i> Pobierz zaznaczone
+                        </button>
+                        <button class="btn btn-danger batch-delete" onclick="batchDelete('converted')" style="display: none;">
+                            <i class="fas fa-trash"></i> Usuń zaznaczone
+                        </button>
+                    </div>
+                </div>
+                <div id="convertedList" class="files-grid"></div>
+                <div id="convertedEmpty" class="empty-state" style="display: none;">
+                    <i class="fas fa-trophy"></i>
+                    <p>Brak skonwertowanych plików. Rozpocznij konwersję!</p>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="settings" class="tabcontent section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-cog"></i> Ustawienia
+                    </h2>
+                </div>
+                <div class="glass" style="padding: 2rem; border-radius: var(--border-radius);">
+                    <h3>Domyślne opcje konwersji</h3>
+                    <p>Tutaj możesz ustawić domyślne wartości dla konwersji. (Implementacja w backendzie)</p>
+                    <!-- Dodaj formę dla ustawień -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Drop Zone Overlay -->
+    <div id="dropZone" class="drop-zone">
+        <div class="drop-zone-content">
+            <i class="fas fa-cloud-upload-alt drop-icon"></i>
+            <p>Upuść pliki tutaj, aby dodać do kolejki</p>
         </div>
+    </div>
 
-        <!-- Upload View -->
-        <div id="upload" class="view">
-            <h2>Upload i Podgląd Pliku</h2>
-            <div class="upload-zone" id="uploadZone">
-                <i>☁️</i>
-                <p>Przeciągnij plik wideo tutaj lub kliknij, aby wybrać z dysku</p>
-                <p style="font-size: 0.9rem; color: #7f8c8d;">Obsługiwane formaty: MP4, AVI, MOV, WEBM (max 200MB)</p>
-                <input type="file" id="fileInput" accept="video/*" style="display: none;">
+    <!-- Convert Modal -->
+    <div id="convertModal" class="modal">
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h3 class="modal-title">
+                    <i class="fas fa-magic"></i> Opcje konwersji FFmpeg
+                </h3>
+                <button class="close">&times;</button>
             </div>
-            <div id="filePreview" style="display: none;">
-                <video id="videoPreview" controls></video>
-                <div class="video-controls">
-                    <button class="btn btn-secondary" onclick="playPreview()">Odtwórz</button>
-                    <button class="btn btn-secondary" onclick="pausePreview()">Pauza</button>
-                </div>
-                <div class="file-details">
-                    <div><strong>Nazwa:</strong> <span id="fileName"></span></div>
-                    <div><strong>Rozmiar:</strong> <span id="fileSize"></span></div>
-                    <div><strong>Czas trwania:</strong> <span id="fileDuration"></span></div>
-                    <div><strong>Rozdzielczość:</strong> <span id="fileResolution"></span></div>
-                </div>
-                <button id="proceedToConverter" class="btn btn-primary" style="display: none; margin-top: 20px;">Przejdź do Konwertera</button>
-            </div>
-            <div id="uploadAlert" class="alert" style="display: none;"></div>
-        </div>
-
-        <!-- Converter View -->
-        <div id="converter" class="view">
-            <h2>Konfiguracja Zaawansowanej Konwersji</h2>
-            <form id="converterForm">
+            <form id="convertForm">
                 <div class="form-group">
-                    <label for="outputFormat">Format Wyjściowy:</label>
-                    <select id="outputFormat">
+                    <label for="format">Format wyjściowy</label>
+                    <select id="format">
                         <option value="mp4">MP4 (H.264/AAC)</option>
                         <option value="webm">WebM (VP9/Opus)</option>
                         <option value="avi">AVI (MPEG-4)</option>
-                        <option value="mov">MOV (H.264)</option>
+                        <option value="mp3">MP3 (Audio only)</option>
+                        <option value="wav">WAV (Audio only)</option>
+                        <option value="gif">GIF (Animated)</option>
                     </select>
                 </div>
-                <div class="form-group">
-                    <label for="resolution">Rozdzielczość:</label>
-                    <select id="resolution">
-                        <option value="original">Oryginalna</option>
-                        <option value="1920x1080">1080p (Full HD)</option>
-                        <option value="1280x720">720p (HD)</option>
-                        <option value="854x480">480p</option>
-                    </select>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="resolution">Rozdzielczość</label>
+                        <input type="text" id="resolution" placeholder="1920x1080">
+                    </div>
+                    <div class="form-group">
+                        <label for="crf">CRF (18-28)</label>
+                        <input type="number" id="crf" min="18" max="28" value="23">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="bitrate">Bitrate wideo</label>
+                        <input type="text" id="bitrate" placeholder="2000k">
+                    </div>
+                    <div class="form-group">
+                        <label for="audioBitrate">Bitrate audio</label>
+                        <input type="text" id="audioBitrate" placeholder="128k">
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label for="bitrate">Bitrate Wideo (kbps):</label>
-                    <input type="number" id="bitrate" min="500" max="10000" value="2000">
+                    <label for="advanced">Zaawansowane opcje (np. -vf crop=...)</label>
+                    <input type="text" id="advanced" placeholder="Opcjonalnie: -vf scale=1280:720">
                 </div>
-                <div class="form-group">
-                    <label for="audioBitrate">Bitrate Audio (kbps):</label>
-                    <input type="number" id="audioBitrate" min="64" max="320" value="128">
+                <button type="submit" class="convert-submit">
+                    <i class="fas fa-play"></i> Rozpocznij konwersję
+                </button>
+                <div class="convert-progress">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="convertProgressFill"></div>
+                    </div>
                 </div>
-                <div class="form-group full-width">
-                    <label for="trimStart">Trimming - Start (w sekundach):</label>
-                    <input type="number" id="trimStart" min="0" step="0.1" value="0">
-                </div>
-                <div class="form-group full-width">
-                    <label for="trimEnd">Trimming - Koniec (w sekundach):</label>
-                    <input type="number" id="trimEnd" min="0" step="0.1" placeholder="Pozostaw puste dla końca pliku">
-                </div>
-                <div class="form-group">
-                    <label for="watermark">Watermark (tekst):</label>
-                    <input type="text" id="watermark" placeholder="Np. © Moja Firma 2025">
-                </div>
-                <div class="form-group">
-                    <label for="watermarkPosition">Pozycja Watermark:</label>
-                    <select id="watermarkPosition">
-                        <option value="top-left">Góra Lewo</option>
-                        <option value="top-right">Góra Prawo</option>
-                        <option value="bottom-left">Dół Lewo</option>
-                        <option value="bottom-right">Dół Prawo</option>
-                        <option value="center">Środek</option>
-                    </select>
-                </div>
-                <div class="form-group checkbox-group full-width">
-                    <input type="checkbox" id="addSubtitles">
-                    <label for="addSubtitles">Dodaj Podpisy (symulowane)</label>
-                </div>
-                <div class="form-group checkbox-group full-width">
-                    <input type="checkbox" id="optimizeSize">
-                    <label for="optimizeSize">Optymalizuj rozmiar pliku</label>
-                </div>
-                <button type="submit" class="btn btn-primary full-width">Rozpocznij Konwersję (Symuluj FFmpeg)</button>
             </form>
-            <div id="converterAlert" class="alert" style="display: none;"></div>
-        </div>
-
-        <!-- Progress View -->
-        <div id="progress" class="view">
-            <h2>Monitorowanie Postępu Konwersji</h2>
-            <div class="progress-section">
-                <div class="progress-steps">
-                    <div class="progress-step">
-                        <div class="step-circle" id="step1">1</div>
-                        <div>Inicjalizacja</div>
-                    </div>
-                    <div class="step-line" id="line1"></div>
-                    <div class="progress-step">
-                        <div class="step-circle" id="step2">2</div>
-                        <div>Kodowanie Wideo</div>
-                    </div>
-                    <div class="step-line" id="line2"></div>
-                    <div class="progress-step">
-                        <div class="step-circle" id="step3">3</div>
-                        <div>Przetwarzanie Audio</div>
-                    </div>
-                    <div class="step-line" id="line3"></div>
-                    <div class="progress-step">
-                        <div class="step-circle" id="step4">4</div>
-                        <div>Muxing & Finalizacja</div>
-                    </div>
-                </div>
-                <div class="progress-bar">
-                    <div id="progressFill" class="progress-fill"></div>
-                </div>
-                <div>
-                    <div class="progress-text" id="progressText">0%</div>
-                    <div class="eta" id="etaText">Szacowany czas: --</div>
-                </div>
-                <button class="btn btn-secondary" onclick="cancelTask()" style="margin-top: 20px;">Anuluj Zadanie</button>
-            </div>
-        </div>
-
-        <!-- History View -->
-        <div id="history" class="view">
-            <h2>Historia Konwersji i Pobrań</h2>
-            <div class="history-controls">
-                <input type="text" class="search-input" id="historySearch" placeholder="Szukaj po nazwie pliku...">
-                <select class="sort-select" id="historySort">
-                    <option value="date-desc">Najnowsze pierwsze</option>
-                    <option value="date-asc">Najstarsze pierwsze</option>
-                    <option value="name-asc">Nazwa A-Z</option>
-                    <option value="name-desc">Nazwa Z-A</option>
-                </select>
-                <button class="btn btn-danger" onclick="clearHistory()">Wyczyść Historię</button>
-            </div>
-            <ul class="history-list" id="historyList">
-                <!-- Dynamic history -->
-            </ul>
         </div>
     </div>
 
-    <!-- Modal for Details -->
-    <div id="detailModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal()">&times;</span>
-            <div id="modalBody"></div>
-        </div>
-    </div>
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
 
-    <script>
-        // Global State - Rozbudowany
-        let currentFile = null;
-        let currentTask = null;
-        let tasks = JSON.parse(localStorage.getItem('tasks')) || [];
-        let history = JSON.parse(localStorage.getItem('history')) || [];
-        let conversionInterval = null;
-        let currentStep = 0;
-        const steps = ['init', 'video', 'audio', 'mux'];
-
-        // EventEmitter-like for Progress (symulacja)
-        class SimpleEventEmitter {
-            constructor() {
-                this.events = {};
-            }
-            on(event, listener) {
-                if (!this.events[event]) this.events[event] = [];
-                this.events[event].push(listener);
-            }
-            emit(event, data) {
-                if (this.events[event]) {
-                    this.events[event].forEach(listener => listener(data));
-                }
-            }
-        }
-        const progressEmitter = new SimpleEventEmitter();
-
-        // Router - Rozbudowany z animacjami
-        const routes = {
-            dashboard: renderDashboard,
-            upload: renderUpload,
-            converter: renderConverter,
-            progress: renderProgress,
-            history: renderHistory
-        };
-
-        function initRouter() {
-            window.addEventListener('popstate', (e) => {
-                const path = window.location.hash.slice(1) || 'dashboard';
-                handleRoute(path);
-            });
-            handleRoute(window.location.hash.slice(1) || 'dashboard');
-            // Listeners for progress updates
-            progressEmitter.on('progress', updateProgressUI);
-        }
-
-        function handleRoute(path) {
-            document.querySelectorAll('.nav-link').forEach(link => {
-                link.classList.toggle('active', link.dataset.route === path);
-            });
-            document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
-            const view = document.getElementById(path);
-            if (view) {
-                view.classList.add('active');
-                // Scroll to top
-                view.scrollIntoView({ behavior: 'smooth' });
-            }
-            if (routes[path]) routes[path]();
-            if (window.location.hash.slice(1) !== path) {
-                window.history.pushState(null, null, `#${path}`);
-            }
-        }
-
-        document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('nav-link')) {
-                e.preventDefault();
-                handleRoute(e.target.dataset.route);
-            }
-        });
-
-        // Dashboard - Rozbudowany
-        function renderDashboard() {
-            const activeTasksEl = document.getElementById('activeTasks');
-            const completedTasksEl = document.getElementById('completedTasks');
-            activeTasksEl.innerHTML = tasks.filter(t => t.status !== 'completed').map(task => createTaskCard(task, true)).join('');
-            completedTasksEl.innerHTML = tasks.filter(t => t.status === 'completed').map(task => createTaskCard(task, false)).join('');
-        }
-
-        function createTaskCard(task, isActive) {
-            const statusClass = task.status === 'completed' ? 'completed' : task.status === 'processing' ? 'processing' : 'error';
-            const actions = isActive ? `
-                <div class="task-actions">
-                    <button class="btn btn-primary" onclick="viewTaskDetails(${task.id})">Szczegóły</button>
-                    <button class="btn btn-danger" onclick="removeTask(${task.id})">Usuń</button>
-                </div>
-            ` : `
-                <div class="task-actions">
-                    ${task.downloadUrl ? `<a href="${task.downloadUrl}" download class="btn btn-primary">Pobierz</a>` : ''}
-                    <button class="btn btn-secondary" onclick="viewTaskDetails(${task.id})">Szczegóły</button>
-                </div>
-            `;
-            return `
-                <div class="task-card ${statusClass}" data-task-id="${task.id}">
-                    <div class="task-header">
-                        <h3>${task.name}</h3>
-                        <span class="status-badge">${task.status}</span>
-                    </div>
-                    <p>Postęp: ${task.progress}%</p>
-                    <p>Rozpoczęto: ${new Date(task.started).toLocaleString()}</p>
-                    ${actions}
-                </div>
-            `;
-        }
-
-        // Upload - Rozbudowany z podglądem wideo i metadanymi
-        function renderUpload() {
-            const uploadZone = document.getElementById('uploadZone');
-            const fileInput = document.getElementById('fileInput');
-            const filePreview = document.getElementById('filePreview');
-            const proceedBtn = document.getElementById('proceedToConverter');
-            const uploadAlert = document.getElementById('uploadAlert');
-            const videoPreview = document.getElementById('videoPreview');
-
-            // Reset
-            filePreview.style.display = 'none';
-            proceedBtn.style.display = 'none';
-            uploadAlert.style.display = 'none';
-            currentFile = null;
-            videoPreview.src = '';
-
-            function handleFileSelect(file) {
-                if (!file.type.startsWith('video/')) {
-                    showAlert(uploadAlert, 'error', 'Proszę wybrać plik wideo.');
-                    return;
-                }
-                if (file.size > 200 * 1024 * 1024) { // 200MB
-                    showAlert(uploadAlert, 'error', 'Plik przekracza limit 200MB.');
-                    return;
-                }
-
-                currentFile = file;
-                document.getElementById('fileName').textContent = file.name;
-                document.getElementById('fileSize').textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
-
-                // Load metadata and preview
-                const url = URL.createObjectURL(file);
-                videoPreview.src = url;
-                videoPreview.onloadedmetadata = () => {
-                    const duration = videoPreview.duration;
-                    document.getElementById('fileDuration').textContent = `${Math.floor(duration / 60)}:${(duration % 60).toFixed(0).padStart(2, '0')}`;
-                    
-                    // Get resolution (simplified)
-                    videoPreview.onloadeddata = () => {
-                        document.getElementById('fileResolution').textContent = `${videoPreview.videoWidth}x${videoPreview.videoHeight}`;
-                        filePreview.style.display = 'block';
-                        proceedBtn.style.display = 'block';
-                    };
-                };
-            }
-
-            uploadZone.addEventListener('click', () => fileInput.click());
-            fileInput.addEventListener('change', (e) => {
-                if (e.target.files[0]) handleFileSelect(e.target.files[0]);
-            });
-
-            ['dragover', 'dragenter'].forEach(event => {
-                uploadZone.addEventListener(event, (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    uploadZone.classList.add('dragover');
-                });
-            });
-            ['dragleave', 'drop'].forEach(event => {
-                uploadZone.addEventListener(event, (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    uploadZone.classList.remove('dragover');
-                    if (event === 'drop' && e.dataTransfer.files[0]) {
-                        handleFileSelect(e.dataTransfer.files[0]);
-                    }
-                });
-            });
-
-            proceedBtn.addEventListener('click', () => {
-                if (currentFile) {
-                    const task = {
-                        id: Date.now(),
-                        name: currentFile.name,
-                        status: 'queued',
-                        progress: 0,
-                        started: new Date().toISOString(),
-                        params: {}
-                    };
-                    tasks.unshift(task);
-                    localStorage.setItem('tasks', JSON.stringify(tasks));
-                    renderDashboard(); // Update dashboard
-                    handleRoute('converter');
-                }
-            });
-        }
-
-        function playPreview() {
-            document.getElementById('videoPreview').play();
-        }
-        function pausePreview() {
-            document.getElementById('videoPreview').pause();
-        }
-
-        // Converter - Rozbudowany z walidacją
-        function renderConverter() {
-            const form = document.getElementById('converterForm');
-            const converterAlert = document.getElementById('converterAlert');
-            converterAlert.style.display = 'none';
-
-            // Pre-fill trimEnd if duration known
-            if (currentFile && currentFile.duration) {
-                document.getElementById('trimEnd').value = currentFile.duration;
-            }
-
-            form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                if (!currentFile) {
-                    showAlert(converterAlert, 'error', 'Brak wybranego pliku. Przejdź do Upload.');
-                    return;
-                }
-
-                // Validation
-                const trimStart = parseFloat(document.getElementById('trimStart').value);
-                const trimEnd = parseFloat(document.getElementById('trimEnd').value) || currentFile.duration;
-                if (trimStart >= trimEnd) {
-                    showAlert(converterAlert, 'error', 'Czas startu musi być mniejszy niż koniec.');
-                    return;
-                }
-
-                const params = {
-                    outputFormat: document.getElementById('outputFormat').value,
-                    resolution: document.getElementById('resolution').value,
-                    bitrate: parseInt(document.getElementById('bitrate').value),
-                    audioBitrate: parseInt(document.getElementById('audioBitrate').value),
-                    trimStart,
-                    trimEnd,
-                    watermark: document.getElementById('watermark').value,
-                    watermarkPosition: document.getElementById('watermarkPosition').value,
-                    addSubtitles: document.getElementById('addSubtitles').checked,
-                    optimizeSize: document.getElementById('optimizeSize').checked
-                };
-
-                currentTask = tasks[0];
-                currentTask.params = params;
-                currentTask.status = 'processing';
-                currentTask.started = new Date().toISOString();
-                localStorage.setItem('tasks', JSON.stringify(tasks));
-
-                // Start simulation
-                simulateAdvancedConversion(currentTask);
-                handleRoute('progress');
-            });
-        }
-
-        // Advanced Simulation with Steps
-        function simulateAdvancedConversion(task) {
-            currentStep = 0;
-            let overallProgress = 0;
-            const stepDurations = [1000, 3000, 2000, 1000]; // ms per step
-
-            function nextStep() {
-                if (currentStep >= steps.length) {
-                    task.status = 'completed';
-                    task.completed = new Date().toISOString();
-                    overallProgress = 100;
-                    progressEmitter.emit('progress', { progress: 100, step: 'done' });
-                    clearInterval(conversionInterval);
-                    // Add to history
-                    const histEntry = { ...task };
-                    history.unshift(histEntry);
-                    localStorage.setItem('history', JSON.stringify(history));
-                    // Generate mock blob
-                    generateAdvancedMockDownload(task);
-                    setTimeout(() => {
-                        renderHistory();
-                        handleRoute('history');
-                    }, 1500);
-                    return;
-                }
-
-                const stepProgress = (currentStep / steps.length) * 100;
-                progressEmitter.emit('progress', { 
-                    progress: stepProgress + (Math.random() * 10), 
-                    step: steps[currentStep],
-                    eta: calculateETA(task)
-                });
-                currentStep++;
-                setTimeout(nextStep, stepDurations[currentStep - 1]);
-            }
-
-            conversionInterval = setInterval(() => {
-                overallProgress += Math.random() * 5;
-                if (overallProgress > 100) overallProgress = 100;
-                task.progress = Math.floor(overallProgress);
-                localStorage.setItem('tasks', JSON.stringify(tasks));
-                progressEmitter.emit('progress', { progress: task.progress });
-            }, 300);
-
-            nextStep();
-        }
-
-        function updateProgressUI(data) {
-            // Update steps
-            for (let i = 0; i < steps.length; i++) {
-                const circle = document.getElementById(`step${i + 1}`);
-                const line = document.getElementById(`line${i + 1}`);
-                if (i < currentStep) {
-                    circle.classList.add('completed');
-                    if (line) line.classList.add('completed');
-                } else if (i === currentStep) {
-                    circle.classList.add('active');
-                }
-            }
-
-            document.getElementById('progressFill').style.width = `${data.progress}%`;
-            document.getElementById('progressText').textContent = `${Math.floor(data.progress)}%`;
-            if (data.eta) {
-                document.getElementById('etaText').textContent = `Szacowany czas: ${data.eta}`;
-            }
-        }
-
-        function calculateETA(task) {
-            // Mock ETA
-            const remaining = 100 - task.progress;
-            return `${Math.floor(remaining / 10)}s`;
-        }
-
-        function renderProgress() {
-            if (!currentTask) {
-                document.querySelector('.progress-section').innerHTML = '<p style="text-align: center;">Brak aktywnego zadania.</p>';
-                return;
-            }
-            // Reset steps for re-render
-            document.querySelectorAll('.step-circle').forEach(c => {
-                c.className = 'step-circle';
-            });
-            document.querySelectorAll('.step-line').forEach(l => {
-                l.className = 'step-line';
-            });
-            updateProgressUI({ progress: currentTask.progress });
-        }
-
-        function cancelTask() {
-            if (conversionInterval) clearInterval(conversionInterval);
-            currentTask.status = 'cancelled';
-            currentTask.progress = 0;
-            localStorage.setItem('tasks', JSON.stringify(tasks));
-            showAlert(document.getElementById('progress').querySelector('.progress-section'), 'error', 'Zadanie anulowane.');
-            setTimeout(() => handleRoute('dashboard'), 2000);
-        }
-
-        // Mock Download Generation
-        function generateAdvancedMockDownload(task) {
-            // More detailed mock based on params
-            const mockContent = `Symulowany plik konwertowany: ${task.name}\nFormat: ${task.params.outputFormat}\nRozdzielczość: ${task.params.resolution}\nBitrate: ${task.params.bitrate}kbps\nCzas: ${task.params.trimStart}-${task.params.trimEnd}s\nWatermark: ${task.params.watermark || 'Brak'}`;
-            const extension = task.params.outputFormat;
-            const blob = new Blob([mockContent], { type: `video/${extension === 'webm' ? 'webm' : 'mp4'}` });
-            const url = URL.createObjectURL(blob);
-            task.downloadUrl = url;
-            task.downloadName = `${task.name.replace(/\.[^/.]+$/, '')}_converted.${extension}`;
-            localStorage.setItem('tasks', JSON.stringify(tasks));
-        }
-
-        // History - Rozbudowany z wyszukiwaniem i sortowaniem
-        function renderHistory() {
-            let filteredHistory = [...history];
-            const searchTerm = document.getElementById('historySearch').value.toLowerCase();
-            if (searchTerm) {
-                filteredHistory = filteredHistory.filter(h => h.name.toLowerCase().includes(searchTerm));
-            }
-            const sortBy = document.getElementById('historySort').value;
-            filteredHistory.sort((a, b) => {
-                if (sortBy === 'date-desc') return new Date(b.completed) - new Date(a.completed);
-                if (sortBy === 'date-asc') return new Date(a.completed) - new Date(b.completed);
-                if (sortBy === 'name-asc') return a.name.localeCompare(b.name);
-                if (sortBy === 'name-desc') return b.name.localeCompare(a.name);
-            });
-
-            const historyList = document.getElementById('historyList');
-            historyList.innerHTML = filteredHistory.map(entry => createHistoryItem(entry)).join('');
-
-            // Listeners
-            document.getElementById('historySearch').addEventListener('input', renderHistory);
-            document.getElementById('historySort').addEventListener('change', renderHistory);
-        }
-
-        function createHistoryItem(entry) {
-            const paramsSummary = Object.entries(entry.params).map(([k, v]) => `${k}: ${v}`).join(', ');
-            return `
-                <li class="history-item">
-                    <div class="history-details">
-                        <strong>${entry.name}</strong>
-                        <div class="history-meta">Zakończono: ${new Date(entry.completed).toLocaleString()} | Parametry: ${paramsSummary}</div>
-                    </div>
-                    <div>
-                        ${entry.downloadUrl ? `<a href="${entry.downloadUrl}" download="${entry.downloadName || entry.name}" class="btn btn-primary">Pobierz (${(new Blob([]).size / 1024).toFixed(0)}KB symul.)</a>` : ''}
-                        <button class="btn btn-secondary" onclick="viewTaskDetails(${entry.id})">Szczegóły</button>
-                        <button class="btn btn-danger" onclick="removeFromHistory('${entry.id}')">Usuń</button>
-                    </div>
-                </li>
-            `;
-        }
-
-        // Utility Functions
-        function showAlert(element, type, message) {
-            element.className = `alert alert-${type}`;
-            element.textContent = message;
-            element.style.display = 'block';
-            setTimeout(() => element.style.display = 'none', 5000);
-        }
-
-        function viewTaskDetails(id) {
-            const task = [...tasks, ...history].find(t => t.id == id);
-            if (!task) return;
-            const modalBody = document.getElementById('modalBody');
-            modalBody.innerHTML = `
-                <h3>Szczegóły Zadania: ${task.name}</h3>
-                <p><strong>Status:</strong> ${task.status}</p>
-                <p><strong>Postęp:</strong> ${task.progress}%</p>
-                <p><strong>Rozpoczęto:</strong> ${new Date(task.started).toLocaleString()}</p>
-                ${task.completed ? `<p><strong>Zakończono:</strong> ${new Date(task.completed).toLocaleString()}</p>` : ''}
-                <h4>Parametry Konwersji:</h4>
-                <ul>${Object.entries(task.params).map(([k, v]) => `<li><strong>${k}:</strong> ${v}</li>`).join('')}</ul>
-                ${task.downloadUrl ? `<a href="${task.downloadUrl}" download class="btn btn-primary">Pobierz Plik</a>` : ''}
-            `;
-            document.getElementById('detailModal').classList.add('active');
-        }
-
-        function closeModal() {
-            document.getElementById('detailModal').classList.remove('active');
-        }
-
-        function removeTask(id) {
-            tasks = tasks.filter(t => t.id != id);
-            localStorage.setItem('tasks', JSON.stringify(tasks));
-            renderDashboard();
-        }
-
-        function removeFromHistory(id) {
-            history = history.filter(h => h.id != id);
-            localStorage.setItem('history', JSON.stringify(history));
-            renderHistory();
-        }
-
-        function clearAllTasks() {
-            if (confirm('Czy na pewno chcesz wyczyścić wszystkie zadania?')) {
-                tasks = [];
-                localStorage.setItem('tasks', JSON.stringify(tasks));
-                renderDashboard();
-            }
-        }
-
-        function clearHistory() {
-            if (confirm('Czy na pewno chcesz wyczyścić historię?')) {
-                history = [];
-                localStorage.setItem('history', JSON.stringify(history));
-                renderHistory();
-            }
-        }
-
-        // Close modal on outside click
-        window.onclick = (e) => {
-            const modal = document.getElementById('detailModal');
-            if (e.target === modal) closeModal();
-        }
-
-        // Service Worker - Rozbudowany dla offline caching
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                const swCode = `
-                    const CACHE_NAME = 'ffmpeg-prototype-v2';
-                    const urlsToCache = [
-                        './',
-                        './index.html' // Self-reference
-                    ];
-
-                    self.addEventListener('install', (event) => {
-                        event.waitUntil(
-                            caches.open(CACHE_NAME)
-                                .then((cache) => cache.addAll(urlsToCache))
-                        );
-                    });
-
-                    self.addEventListener('fetch', (event) => {
-                        event.respondWith(
-                            caches.match(event.request)
-                                .then((response) => {
-                                    if (response) return response;
-                                    return fetch(event.request).catch(() => {
-                                        // Offline fallback
-                                        return caches.match('./');
-                                    });
-                                })
-                        );
-                    });
-
-                    self.addEventListener('activate', (event) => {
-                        event.waitUntil(
-                            caches.keys().then((cacheNames) => {
-                                return Promise.all(
-                                    cacheNames.map((cacheName) => {
-                                        if (cacheName !== CACHE_NAME) {
-                                            return caches.delete(cacheName);
-                                        }
-                                    })
-                                );
-                            })
-                        );
-                    });
-                `;
-                navigator.serviceWorker.register(`data:application/javascript;base64,${btoa(swCode)}`)
-                    .then(reg => console.log('SW registered:', reg))
-                    .catch(err => console.log('SW failed:', err));
-            });
-        }
-
-        // Init
-        initRouter();
-    </script>
+    <script src="main.js"></script>
 </body>
 </html>
