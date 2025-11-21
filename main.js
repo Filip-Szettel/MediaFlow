@@ -1,589 +1,916 @@
-// Obsługiwane rozszerzenia
-const supportedExtensions = new Set([
-    'mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm', 'ogv', 'm4v',
-    'mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a', 'wma',
-    'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'
-]);
+// main.js - Naprawiona wersja z poprawkami błędów, toggle select all/deselect all,
+// trigger file input, brak alertu na starcie, podstawowe settings.
 
-// DOM Elements
-const appLayout = document.getElementById('appLayout');
-const sidebar = document.getElementById('sidebar');
-const sidebarToggle = document.getElementById('sidebarToggle');
-const header = document.getElementById('header');
-const mainContent = document.getElementById('mainContent');
-const dropZone = document.getElementById('dropZone');
-const pendingList = document.getElementById('pendingList');
-const uploadsList = document.getElementById('uploadsList');
-const convertedList = document.getElementById('convertedList');
-const uploadZone = document.getElementById('uploadZone');
-const fileInput = document.getElementById('fileInput');
-const uploadBtn = document.getElementById('uploadBtn');
-const pendingEmpty = document.getElementById('pendingEmpty');
-const uploadsEmpty = document.getElementById('uploadsEmpty');
-const convertedEmpty = document.getElementById('convertedEmpty');
-const pendingCount = document.getElementById('pendingCount');
-const uploadsCount = document.getElementById('uploadsCount');
-const convertedCount = document.getElementById('convertedCount');
-const currentTitle = document.getElementById('currentTitle');
-const globalSearch = document.getElementById('globalSearch');
+(() => {
+    'use strict';
 
-const modal = document.getElementById('convertModal');
-const closeModal = document.querySelector('.close');
-const convertForm = document.getElementById('convertForm');
-const convertSubmit = convertForm.querySelector('.convert-submit');
-
-const toast = document.getElementById('toast');
-const uploadProgressFill = document.getElementById('uploadProgressFill');
-const convertProgressFill = document.getElementById('convertProgressFill');
-
-// State Variables
-let selectedFiles = [];
-let fileUrls = new Map();
-let currentFileToConvert = null;
-let dragCounter = 0;
-let selectedUploads = new Set();
-let selectedConverted = new Set();
-let currentTab = 'pending';
-let sidebarCollapsed = false;
-
-// Sidebar Toggle
-sidebarToggle.addEventListener('click', () => {
-    sidebarCollapsed = !sidebarCollapsed;
-    appLayout.classList.toggle('sidebar-collapsed', sidebarCollapsed);
-    sidebar.classList.toggle('collapsed', sidebarCollapsed);
-    header.classList.toggle('collapsed-margin', sidebarCollapsed);
-    mainContent.classList.toggle('collapsed-margin', sidebarCollapsed);
-    sidebarToggle.querySelector('i').classList.toggle('fa-bars');
-    sidebarToggle.querySelector('i').classList.toggle('fa-times');
-    localStorage.setItem('sidebarCollapsed', sidebarCollapsed);
-});
-
-// Load saved state
-if (localStorage.getItem('sidebarCollapsed') === 'true') {
-    sidebarToggle.click();
-}
-
-// Utility Functions
-const showToast = (message, type = 'success') => {
-    toast.textContent = message;
-    toast.className = `toast ${type} show`;
-    setTimeout(() => toast.classList.remove('show'), 4000);
-};
-
-const updateCounts = () => {
-    pendingCount.textContent = `${selectedFiles.length} plików`;
-    // Counts for other tabs updated in loadFilesLists
-};
-
-const updateBatchButtons = (section) => {
-    const count = section === 'uploads' ? selectedUploads.size : selectedConverted.size;
-    const batchDelete = document.querySelector(`#${section}Tab .batch-delete`);
-    const batchConvert = document.querySelector(`#${section}Tab .batch-convert`);
-    const batchDownload = document.querySelector(`#${section}Tab .batch-download`);
-    if (batchDelete) batchDelete.style.display = count > 0 ? 'inline-flex' : 'none';
-    if (batchConvert) batchConvert.style.display = count > 0 ? 'inline-flex' : 'none';
-    if (batchDownload) batchDownload.style.display = count > 0 ? 'inline-flex' : 'none';
-};
-
-const selectAll = (section) => {
-    const cards = document.querySelectorAll(`#${section}Tab .file-card`);
-    cards.forEach(card => {
-        const checkbox = card.querySelector('input[type="checkbox"]');
-        if (!checkbox.checked) {
-            checkbox.checked = true;
-            card.classList.add('selected');
-            const fileName = card.dataset.filename;
-            if (section === 'uploads') selectedUploads.add(fileName);
-            else selectedConverted.add(fileName);
-        }
-    });
-    updateBatchButtons(section);
-    showToast(`${cards.length} plików zaznaczonych.`);
-};
-
-const batchDelete = async (section) => {
-    const files = section === 'uploads' ? selectedUploads : selectedConverted;
-    if (files.size === 0) return;
-    if (!confirm(`Czy na pewno usunąć ${files.size} plików?`)) return;
-    try {
-        await Promise.all(Array.from(files).map(fileName => 
-            fetch(`/delete/${encodeURIComponent(fileName)}/${section === 'uploads' ? 'uploads' : 'converted'}`, { method: 'DELETE' })
-        ));
-        loadFilesLists();
-        showToast(`${files.size} plików usuniętych pomyślnie.`);
-        if (section === 'uploads') selectedUploads.clear();
-        else selectedConverted.clear();
-        updateBatchButtons(section);
-    } catch (error) {
-        showToast('Błąd podczas usuwania plików.', 'error');
-    }
-};
-
-const batchConvert = () => {
-    if (selectedUploads.size === 0) return;
-    currentFileToConvert = Array.from(selectedUploads);
-    modal.classList.add('show');
-    // Pre-fill form if needed
-};
-
-const batchDownload = () => {
-    if (selectedConverted.size === 0) return;
-    const files = Array.from(selectedConverted);
-    files.forEach(fileName => {
-        const link = document.createElement('a');
-        link.href = `/download/${encodeURIComponent(fileName)}`;
-        link.download = fileName;
-        link.click();
-    });
-    showToast(`${files.length} plików pobranych.`);
-};
-
-const refreshLists = () => {
-    loadFilesLists();
-    renderPendingList();
-    showToast('Listy odświeżone.');
-};
-
-// Vertical Tabs Navigation (W3Schools Style)
-function openTab(evt, tabName) {
-    var i, tabcontent, tablinks;
-    tabcontent = document.getElementsByClassName("tabcontent");
-    for (i = 0; i < tabcontent.length; i++) {
-        tabcontent[i].style.display = "none";
-        tabcontent[i].classList.remove('active'); // Dodatek dla animacji
-    }
-    tablinks = document.getElementsByClassName("tablinks");
-    for (i = 0; i < tablinks.length; i++) {
-        tablinks[i].className = tablinks[i].className.replace(" active", "");
-    }
-    document.getElementById(tabName).style.display = "block";
-    document.getElementById(tabName).classList.add('active'); // Animacja fadeIn
-    evt.currentTarget.className += " active";
-
-    // Nasze dodatki: Update title i currentTab
-    currentTab = tabName;
-    const icon = evt.currentTarget.querySelector('i').classList[1].replace('fa-', '');
-    const titleText = evt.currentTarget.querySelector('span').textContent;
-    currentTitle.innerHTML = `<i class="fas fa-${icon}"></i> ${titleText}`;
-
-    // Reset search dla nowej zakładki
-    globalSearch.value = '';
-    const currentGrid = document.querySelector(`#${tabName}List`);
-    if (currentGrid) {
-        const cards = currentGrid.querySelectorAll('.file-card');
-        cards.forEach(card => card.style.display = 'block');
-    }
-
-    // Smooth scroll do top
-    document.querySelector('.tab-content-container').scrollTop = 0;
-}
-
-// Get the element with id="defaultOpen" and click on it
-document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById("defaultOpen").click();
-});
-
-// Global Search
-globalSearch.addEventListener('input', (e) => {
-    const query = e.target.value.toLowerCase();
-    // Implement search across all tabs - for now, filter visible list
-    const currentGrid = document.querySelector(`#${currentTab}List`);
-    if (currentGrid) {
-        const cards = currentGrid.querySelectorAll('.file-card');
-        cards.forEach(card => {
-            const name = card.querySelector('.file-name').textContent.toLowerCase();
-            card.style.display = name.includes(query) ? 'block' : 'none';
+    // ==================== UTILS ====================
+    const {
+        pipe,
+        curry,
+        tap,
+        always,
+        compose,
+        prop,
+        assoc,
+        dissoc,
+        filter,
+        map,
+        reduce,
+        find,
+        isEmpty,
+        propEq,
+        reject,
+        sortBy,
+        values,
+        keys,
+        identity,
+    } = (() => {
+        const pipe = (...fns) => (x) => fns.reduce((v, f) => f(v), x);
+        const curry = (fn) => {
+            return function curried(...args) {
+                if (args.length >= fn.length) return fn.apply(this, args);
+                return (...nextArgs) => curried.apply(this, [...args, ...nextArgs]);
+            };
+        };
+        const tap = (fn) => (x) => { fn(x); return x; };
+        const always = (val) => () => val;
+        const compose = (...fns) => pipe(...fns.reverse());
+        const prop = curry((key, obj) => obj?.[key]);
+        const assoc = curry((key, val, obj) => ({ ...obj, [key]: val }));
+        const dissoc = curry((key, obj) => {
+            const { [key]: _, ...rest } = obj;
+            return rest;
         });
-    }
-});
+        const filter = curry((pred, xs) => xs.filter(pred));
+        const map = curry((fn, xs) => xs.map(fn));
+        const reduce = curry((fn, init, xs) => xs.reduce(fn, init));
+        const find = curry((pred, xs) => xs.find(pred));
+        const isEmpty = (xs) => xs.length === 0;
+        const propEq = curry((key, val, obj) => obj?.[key] === val);
+        const reject = curry((pred, xs) => xs.filter((x) => !pred(x)));
+        const sortBy = curry((fn, xs) => [...xs].sort((a, b) => fn(a) - fn(b) || fn(b) - fn(a)));
+        const values = (obj) => Object.values(obj);
+        const keys = (obj) => Object.keys(obj);
+        const identity = (x) => x;
 
-// Drag & Drop
-const preventDefaults = e => {
-    e.preventDefault();
-    e.stopPropagation();
-};
+        return {
+            pipe, curry, tap, always, compose, prop, assoc, dissoc,
+            filter, map, reduce, find, isEmpty, propEq, reject, sortBy, values, keys, identity,
+        };
+    })();
 
-const handleDragEnter = e => {
-    dragCounter++;
-    if (dragCounter === 1) dropZone.classList.add('show');
-};
+    // ==================== CONSTANTS ====================
+    const SUPPORTED_EXTENSIONS = new Set([
+        'mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm', 'ogv', 'm4v',
+        'mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a', 'wma',
+        'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'
+    ]);
+    const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+    const STORAGE_KEY = 'mediaFlowState';
 
-const handleDragLeave = e => {
-    dragCounter--;
-    if (dragCounter === 0) dropZone.classList.remove('show');
-};
-
-const handleDrop = e => {
-    preventDefaults(e);
-    dragCounter = 0;
-    dropZone.classList.remove('show');
-    const files = Array.from(e.dataTransfer.files);
-    addFiles(files);
-};
-
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-    [document, document.body, uploadZone].forEach(el => {
-        el.addEventListener(eventName, preventDefaults, false);
-        if (eventName === 'dragenter') el.addEventListener(eventName, handleDragEnter, false);
-        if (eventName === 'dragleave') el.addEventListener(eventName, handleDragLeave, false);
-        if (eventName === 'drop') el.addEventListener(eventName, handleDrop, false);
-    });
-});
-
-// File Input
-fileInput.addEventListener('change', (e) => {
-    addFiles(Array.from(e.target.files));
-    fileInput.value = ''; // Reset for multiple selections
-});
-
-const addFiles = (files) => {
-    const validFiles = files.filter(file => {
-        const ext = file.name.split('.').pop().toLowerCase();
-        if (!supportedExtensions.has(ext)) {
-            showToast(`"${file.name}" nie jest obsługiwanym formatem.`, 'error');
-            return false;
+    // ==================== STATE MANAGEMENT ====================
+    const loadState = () => {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (!saved) return initialState;
+            const parsed = JSON.parse(saved);
+            return {
+                ...initialState,
+                ...parsed,
+                selectedUploads: new Set(parsed.selectedUploads || []),
+                selectedConverted: new Set(parsed.selectedConverted || []),
+                fileUrls: new Map(parsed.fileUrls || []),
+                selectedFiles: parsed.selectedFiles || [],
+            };
+        } catch {
+            return initialState;
         }
-        return true;
-    });
-    if (validFiles.length > 0) {
-        selectedFiles = [...new Set([...selectedFiles, ...validFiles])];
-        renderPendingList();
-        pendingEmpty.style.display = 'none';
-        showToast(`${validFiles.length} plików dodanych do kolejki.`);
-    }
-};
+    };
+    const saveState = (state) => {
+        try {
+            const serializable = {
+                ...state,
+                selectedFiles: state.selectedFiles.map(f => ({ name: f.name, size: f.size, type: f.type })),
+                fileUrls: Array.from(state.fileUrls.entries()).map(([k, v]) => [k ? k.name : k, v]),
+                selectedUploads: Array.from(state.selectedUploads),
+                selectedConverted: Array.from(state.selectedConverted),
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable));
+        } catch {}
+    };
 
-// Render Pending List
-const getFileIcon = (ext) => {
-    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) return 'fas fa-image';
-    if (['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm', 'ogv', 'm4v'].includes(ext)) return 'fas fa-video';
-    if (['mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a', 'wma'].includes(ext)) return 'fas fa-music';
-    return 'fas fa-file';
-};
+    const initialState = {
+        selectedFiles: [],
+        fileUrls: new Map(),
+        selectedUploads: new Set(),
+        selectedConverted: new Set(),
+        currentTab: 'pending',
+        sidebarCollapsed: false,
+        settings: { defaultFormat: 'mp4', defaultCrf: 23, sortBy: 'name' },
+        searchQuery: '',
+        dragCounter: 0,
+        uploads: [],
+        converted: [],
+        currentFileToConvert: null,
+    };
 
-const createLocalThumbnail = (file) => {
-    const ext = file.name.split('.').pop().toLowerCase();
-    const thumbnail = document.createElement('div');
-    thumbnail.className = 'file-thumbnail';
-    const icon = document.createElement('i');
-    icon.className = getFileIcon(ext);
-    thumbnail.appendChild(icon);
+    const stateReducer = (state, action) => {
+        switch (action.type) {
+            case 'ADD_FILES':
+                return assoc('selectedFiles', [...new Set([...state.selectedFiles, ...action.files])], state);
+            case 'REMOVE_FILE':
+                const fileToRemove = find(propEq('name', action.fileName), state.selectedFiles);
+                if (fileToRemove) {
+                    const url = state.fileUrls.get(fileToRemove);
+                    if (url) URL.revokeObjectURL(url);
+                    state.fileUrls.delete(fileToRemove);
+                }
+                return assoc('selectedFiles', reject(propEq('name', action.fileName), state.selectedFiles), state);
+            case 'TOGGLE_SELECT_UPLOAD':
+                const newUploads = action.selected 
+                    ? new Set([...state.selectedUploads, action.fileName]) 
+                    : new Set(reject(x => x === action.fileName, state.selectedUploads));
+                return assoc('selectedUploads', newUploads, state);
+            case 'TOGGLE_SELECT_CONVERTED':
+                const newConverted = action.selected 
+                    ? new Set([...state.selectedConverted, action.fileName]) 
+                    : new Set(reject(x => x === action.fileName, state.selectedConverted));
+                return assoc('selectedConverted', newConverted, state);
+            case 'SET_TAB':
+                return assoc('currentTab', action.tab, state);
+            case 'TOGGLE_SIDEBAR':
+                return assoc('sidebarCollapsed', !state.sidebarCollapsed, state);
+            case 'SET_SEARCH':
+                return assoc('searchQuery', action.query, state);
+            case 'UPDATE_SETTINGS':
+                return assoc('settings', { ...state.settings, ...action.updates }, state);
+            case 'LOAD_FILES':
+                return assoc('uploads', action.uploads || [], assoc('converted', action.converted || [], state));
+            case 'SET_CURRENT_CONVERT':
+                return assoc('currentFileToConvert', action.files || action.file, state);
+            case 'CLEAR_PENDING':
+                state.fileUrls.forEach(URL.revokeObjectURL);
+                return assoc('selectedFiles', [], assoc('fileUrls', new Map(), state));
+            case 'CLEAR_SELECTED_UPLOADS':
+                return assoc('selectedUploads', new Set(), state);
+            case 'CLEAR_SELECTED_CONVERTED':
+                return assoc('selectedConverted', new Set(), state);
+            case 'CLEAR_URLS':
+                return assoc('fileUrls', new Map(), state);
+            case 'INCREMENT_DRAG':
+                return assoc('dragCounter', state.dragCounter + 1, state);
+            case 'DECREMENT_DRAG':
+                return assoc('dragCounter', Math.max(0, state.dragCounter - 1), state);
+            default:
+                return state;
+        }
+    };
 
-    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) {
-        const img = document.createElement('img');
-        const url = URL.createObjectURL(file);
-        img.src = url;
-        img.style.position = 'absolute';
-        img.onerror = () => img.remove();
-        thumbnail.appendChild(img);
-        fileUrls.set(file, url);
-    } else if (['mp4', 'webm', 'ogv'].includes(ext)) {
-        const video = document.createElement('video');
-        const url = URL.createObjectURL(file);
-        video.src = url;
-        video.muted = true;
-        video.loop = true;
-        video.autoplay = true;
-        video.style.position = 'absolute';
-        video.onerror = () => video.remove();
-        thumbnail.appendChild(video);
-        fileUrls.set(file, url);
-    }
-    return thumbnail;
-};
+    let currentState = loadState();
+    const subscribers = new Set();
+    const getState = () => ({ ...currentState });
+    const dispatch = (action) => {
+        currentState = stateReducer(currentState, action);
+        saveState(currentState);
+        subscribers.forEach(cb => cb(currentState));
+    };
+    const subscribe = (cb) => {
+        subscribers.add(cb);
+        return () => subscribers.delete(cb);
+    };
 
-const createPendingFileCard = (file, index) => {
-    const card = document.createElement('div');
-    card.className = 'file-card';
-    card.innerHTML = `
-        <div class="file-thumbnail">${createLocalThumbnail(file).innerHTML}</div>
-        <div class="file-info">
-            <div class="file-name">${file.name}</div>
-            <div class="file-meta">
-                <span>${(file.size / 1024 / 1024).toFixed(1)} MB</span>
-                <span>${file.type || 'Nieznany typ'}</span>
-            </div>
-            <div class="file-progress">
-                <div class="file-progress-fill"></div>
-            </div>
-            <div class="file-actions">
-                <button class="file-action-btn file-action-danger" onclick="removePendingFile(${index})">
-                    <i class="fas fa-trash"></i> Usuń
-                </button>
-            </div>
-        </div>
-    `;
-    return card;
-};
+    // ==================== API FUNCTIONS ====================
+    const api = {
+        uploadFiles: async (files) => {
+            const formData = new FormData();
+            files.forEach(f => formData.append('files', f));
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            if (!res.ok) throw new Error((await res.json()).error || 'Upload failed');
+            return await res.json();
+        },
+        convertFiles: async (files, options) => {
+            const formData = new FormData();
+            formData.append('files', JSON.stringify(files));
+            Object.entries(options).forEach(([k, v]) => formData.append(k, v));
+            const res = await fetch('/convert', { method: 'POST', body: formData });
+            if (!res.ok) throw new Error((await res.json()).error || 'Convert failed');
+            return await res.json();
+        },
+        loadFiles: async () => {
+            const res = await fetch('/files');
+            if (!res.ok) throw new Error('Load failed');
+            return await res.json();
+        },
+        deleteFile: async (fileName, dir) => {
+            const res = await fetch(`/delete/${encodeURIComponent(fileName)}/${dir}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('Delete failed');
+        },
+        downloadFile: (fileName) => {
+            const link = document.createElement('a');
+            link.href = `/download/${encodeURIComponent(fileName)}`;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        },
+    };
 
-const renderPendingList = () => {
-    pendingList.innerHTML = '';
-    updateCounts();
-    if (selectedFiles.length === 0) {
-        pendingEmpty.style.display = 'block';
-        return;
-    }
-    pendingEmpty.style.display = 'none';
-    selectedFiles.forEach((file, index) => {
-        pendingList.appendChild(createPendingFileCard(file, index));
-    });
-};
-
-const removePendingFile = (index) => {
-    const file = selectedFiles[index];
-    const url = fileUrls.get(file);
-    if (url) URL.revokeObjectURL(url);
-    selectedFiles.splice(index, 1);
-    renderPendingList();
-    if (selectedFiles.length === 0) {
-        document.querySelector('.upload-progress').style.display = 'none';
-    }
-    showToast('Plik usunięty z kolejki.');
-};
-
-// Upload Functionality
-uploadBtn.addEventListener('click', async () => {
-    if (selectedFiles.length === 0) return;
-    const formData = new FormData();
-    selectedFiles.forEach(file => formData.append('files', file));
-    const uploadProgress = document.querySelector('.upload-progress');
-    uploadProgress.style.display = 'block';
-    const progressFill = uploadProgress.querySelector('.progress-fill');
-    uploadBtn.disabled = true;
-    uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Wysyłanie...';
-
-    try {
-        const response = await fetch('/upload', { 
-            method: 'POST', 
-            body: formData
-        });
-        if (response.ok) {
-            progressFill.style.width = '100%';
-            showToast('Upload zakończony pomyślnie!');
-            selectedFiles.forEach(file => {
-                const url = fileUrls.get(file);
-                if (url) URL.revokeObjectURL(url);
+    // ==================== UI FUNCTIONS ====================
+    const dom = {
+        getElement: (sel) => document.querySelector(sel),
+        getElements: (sel) => document.querySelectorAll(sel),
+        createElement: (tag, props = {}, children = []) => {
+            const el = document.createElement(tag);
+            Object.entries(props).forEach(([k, v]) => {
+                if (k === 'textContent') el.textContent = v;
+                else if (k === 'innerHTML') el.innerHTML = v;
+                else el[k] = v;
             });
-            fileUrls.clear();
-            selectedFiles = [];
+            children.forEach(child => el.append(typeof child === 'string' ? document.createTextNode(child) : child));
+            return el;
+        },
+    };
+
+    const isSupportedFile = (file) => {
+        const ext = file.name.split('.').pop().toLowerCase();
+        return SUPPORTED_EXTENSIONS.has(ext) && file.size <= MAX_FILE_SIZE;
+    };
+
+    const handleFileAdd = (files) => {
+        const validFiles = files.filter(isSupportedFile);
+        const invalidNames = files.filter(f => !isSupportedFile(f)).map(f => f.name);
+        if (invalidNames.length > 0) {
+            showToast(`Pominięto: ${invalidNames.join(', ')} (nieobsługiwane lub za duże).`, 'error');
+        }
+        if (validFiles.length > 0) {
+            dispatch({ type: 'ADD_FILES', files: validFiles });
             renderPendingList();
-            loadFilesLists();
-        } else {
-            const err = await response.json();
-            throw new Error(err.error || 'Błąd uploadu');
+            showToast(`${validFiles.length} plików dodanych do kolejki.`);
+            updateUploadButton();
         }
-    } catch (error) {
-        showToast('Błąd uploadu: ' + error.message, 'error');
-    } finally {
-        setTimeout(() => {
-            uploadProgress.style.display = 'none';
-            progressFill.style.width = '0%';
-            uploadBtn.disabled = false;
-            uploadBtn.innerHTML = '<i class="fas fa-plus"></i> Wybierz pliki';
-        }, 1500);
-    }
-});
+    };
 
-// Load Server Files
-const loadFilesLists = async () => {
-    try {
-        const response = await fetch('/files');
-        const { uploads, converted } = await response.json();
-        renderServerList(uploadsList, uploads, true);
-        renderServerList(convertedList, converted, false);
-        uploadsCount.textContent = `${uploads.length} plików`;
-        convertedCount.textContent = `${converted.length} plików`;
-    } catch (error) {
-        console.error('Błąd ładowania plików:', error);
-        showToast('Błąd ładowania listy plików.', 'error');
-    }
-};
+    const createThumbnail = (file) => {
+        const ext = file.name.split('.').pop().toLowerCase();
+        const thumbDiv = dom.createElement('div', { className: 'file-thumbnail' });
+        const iconEl = dom.createElement('i', { className: getFileIcon(ext), style: 'font-size: 3rem; opacity: 0.8; color: white; display: none;' });
+        thumbDiv.append(iconEl);
 
-const createServerThumbnail = (fileName, isUpload) => {
-    const ext = fileName.split('.').pop().toLowerCase();
-    const baseUrl = isUpload ? '/thumbnail/' : '/preview/';
-    const iconClass = getFileIcon(ext);
-    let thumbnailHTML = `<i class="${iconClass}" style="font-size: 3rem; opacity: 0.8; color: white;"></i>`;
+        const url = URL.createObjectURL(file);
+        currentState.fileUrls.set(file, url); // Direct set for simplicity
 
-    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) {
-        thumbnailHTML = `<img src="${baseUrl}${encodeURIComponent(fileName)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="width:100%;height:100%;object-fit:cover; position: absolute;">${thumbnailHTML}`;
-    } else if (['mp4', 'webm', 'ogv'].includes(ext)) {
-        thumbnailHTML = `<video src="${baseUrl}${encodeURIComponent(fileName)}" muted loop autoplay onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="width:100%;height:100%;object-fit:cover; position: absolute;"></video>${thumbnailHTML}`;
-    }
-    return thumbnailHTML;
-};
+        if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) {
+            const img = dom.createElement('img', { 
+                src: url,
+                style: 'width:100%;height:100%;object-fit:cover;position:absolute;',
+                onerror: () => { img.style.display = 'none'; iconEl.style.display = 'flex'; }
+            });
+            thumbDiv.append(img);
+        } else if (['mp4', 'webm', 'ogv'].includes(ext)) {
+            const vid = dom.createElement('video', {
+                src: url,
+                muted: true, loop: true, autoplay: true,
+                style: 'width:100%;height:100%;object-fit:cover;position:absolute;',
+                onerror: () => { vid.style.display = 'none'; iconEl.style.display = 'flex'; }
+            });
+            thumbDiv.append(vid);
+        } else {
+            iconEl.style.display = 'flex';
+        }
+        return thumbDiv;
+    };
 
-const renderServerList = (container, files, isUpload) => {
-    container.innerHTML = '';
-    const emptyEl = container.parentElement.querySelector('.empty-state');
-    if (files.length === 0) {
-        emptyEl.style.display = 'block';
-        return;
-    }
-    emptyEl.style.display = 'none';
-    files.forEach(fileName => {
-        const card = document.createElement('div');
-        card.className = 'file-card';
-        card.dataset.filename = fileName;
+    const getFileIcon = (ext) => {
+        if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) return 'fas fa-image';
+        if (['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm', 'ogv', 'm4v'].includes(ext)) return 'fas fa-video';
+        if (['mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a', 'wma'].includes(ext)) return 'fas fa-music';
+        return 'fas fa-file';
+    };
+
+    const createServerThumbnail = (fileName, isUpload) => {
         const ext = fileName.split('.').pop().toLowerCase();
-        const status = isUpload ? 'Gotowy do konwersji' : `Skonwertowany ${new Date().toLocaleDateString('pl-PL')}`;
-        card.innerHTML = `
-            <input type="checkbox" class="file-checkbox">
-            <div class="file-thumbnail">
-                ${createServerThumbnail(fileName, isUpload)}
-                <div class="file-overlay">
-                    <i class="fas fa-eye"></i>
-                </div>
-            </div>
-            <div class="file-info">
-                <div class="file-name">${fileName}</div>
-                <div class="file-meta">
-                    <span>${status}</span>
-                    <span><i class="fas fa-clock"></i> ${new Date().toLocaleTimeString()}</span>
-                </div>
-                <div class="file-actions">
-                    ${isUpload ? `
-                        <button class="file-action-btn file-action-primary" onclick="openConvertModal('${fileName}')">
-                            <i class="fas fa-magic"></i> Konwertuj
-                        </button>
-                    ` : `
-                        <button class="file-action-btn file-action-download" onclick="downloadFile('${fileName}')">
-                            <i class="fas fa-download"></i> Pobierz
-                        </button>
-                    `}
-                    <button class="file-action-btn file-action-danger" onclick="removeFileSingle('${fileName}', ${isUpload})">
-                        <i class="fas fa-trash"></i> Usuń
-                    </button>
-                </div>
-            </div>
-        `;
-        const checkbox = card.querySelector('.file-checkbox');
-        checkbox.addEventListener('change', () => toggleFileSelect(card, isUpload ? 'uploads' : 'converted'));
-        card.addEventListener('click', (e) => {
-            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'I') return;
-            checkbox.checked = !checkbox.checked;
-            toggleFileSelect(card, isUpload ? 'uploads' : 'converted');
-        });
-        container.appendChild(card);
-    });
-    updateBatchButtons(isUpload ? 'uploads' : 'converted');
-};
+        const baseUrl = isUpload ? '/thumbnail/' : '/preview/';
+        const iconClass = getFileIcon(ext);
+        let thumbnailHTML = `<i class="${iconClass}" style="font-size: 3rem; opacity: 0.8; color: white; display: none;"></i>`;
 
-const toggleFileSelect = (card, section) => {
-    const checkbox = card.querySelector('input[type="checkbox"]');
-    const fileName = card.dataset.filename;
-    if (checkbox.checked) {
-        card.classList.add('selected');
-        if (section === 'uploads') selectedUploads.add(fileName);
-        else selectedConverted.add(fileName);
-    } else {
-        card.classList.remove('selected');
-        if (section === 'uploads') selectedUploads.delete(fileName);
-        else selectedConverted.delete(fileName);
-    }
-    updateBatchButtons(section);
-};
-
-const removeFileSingle = async (fileName, isUpload) => {
-    if (!confirm(`Czy na pewno usunąć "${fileName}"?`)) return;
-    try {
-        await fetch(`/delete/${encodeURIComponent(fileName)}/${isUpload ? 'uploads' : 'converted'}`, { method: 'DELETE' });
-        loadFilesLists();
-        showToast('Plik usunięty pomyślnie.');
-        if (isUpload) selectedUploads.delete(fileName);
-        else selectedConverted.delete(fileName);
-        updateBatchButtons(isUpload ? 'uploads' : 'converted');
-    } catch (error) {
-        showToast('Błąd usuwania pliku.', 'error');
-    }
-};
-
-const downloadFile = (fileName) => {
-    const link = document.createElement('a');
-    link.href = `/download/${encodeURIComponent(fileName)}`;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast(`Pobieranie "${fileName}"...`);
-};
-
-// Modal Handling
-const openConvertModal = (fileName) => {
-    currentFileToConvert = fileName;
-    convertSubmit.disabled = false;
-    modal.classList.add('show');
-};
-
-closeModal.onclick = () => modal.classList.remove('show');
-window.addEventListener('click', (e) => {
-    if (e.target === modal) modal.classList.remove('show');
-});
-
-convertForm.onsubmit = async (e) => {
-    e.preventDefault();
-    if (!currentFileToConvert) return;
-    // Walidacja formularza (ulepszenie)
-    const crfValue = parseInt(document.getElementById('crf').value);
-    if (crfValue < 18 || crfValue > 28) {
-        showToast('CRF musi być między 18 a 28.', 'error');
-        return;
-    }
-    const isBatch = Array.isArray(currentFileToConvert);
-    const files = isBatch ? currentFileToConvert : [currentFileToConvert];
-    const formData = new FormData();
-    formData.append('files', JSON.stringify(files));
-    formData.append('format', document.getElementById('format').value);
-    formData.append('resolution', document.getElementById('resolution').value);
-    formData.append('crf', document.getElementById('crf').value);
-    formData.append('bitrate', document.getElementById('bitrate').value);
-    formData.append('audioBitrate', document.getElementById('audioBitrate').value);
-    formData.append('advanced', document.getElementById('advanced').value);
-
-    const convertProgress = document.querySelector('.convert-progress');
-    convertProgress.style.display = 'block';
-    convertSubmit.disabled = true;
-    convertSubmit.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Konwertowanie...';
-
-    try {
-        const response = await fetch('/convert', { 
-            method: 'POST', 
-            body: formData
-        });
-        if (response.ok) {
-            convertProgressFill.style.width = '100%';
-            const result = await response.json();
-            showToast(`Konwersja zakończona: ${result.outputs ? result.outputs.join(', ') : files.length + ' plików gotowych'}`);
-            modal.classList.remove('show');
-            loadFilesLists();
-            if (isBatch) selectedUploads.clear();
-            updateBatchButtons('uploads');
+        if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) {
+            thumbnailHTML = `<img src="${baseUrl}${encodeURIComponent(fileName)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:100%;height:100%;object-fit:cover;position:absolute;">${thumbnailHTML}`;
+        } else if (['mp4', 'webm', 'ogv'].includes(ext)) {
+            thumbnailHTML = `<video src="${baseUrl}${encodeURIComponent(fileName)}" muted loop autoplay onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" style="width:100%;height:100%;object-fit:cover;position:absolute;"></video>${thumbnailHTML}`;
         } else {
-            const err = await response.json();
-            throw new Error(err.error || 'Błąd konwersji');
+            thumbnailHTML = `<i class="${iconClass}" style="font-size: 3rem; opacity: 0.8; color: white; display: flex;"></i>`;
         }
-    } catch (error) {
-        showToast('Błąd konwersji: ' + error.message, 'error');
-    } finally {
-        setTimeout(() => {
-            convertProgress.style.display = 'none';
-            convertProgressFill.style.width = '0%';
-            convertSubmit.disabled = false;
-            convertSubmit.innerHTML = '<i class="fas fa-play"></i> Rozpocznij konwersję';
-        }, 1500);
+        return dom.createElement('div', { className: 'file-thumbnail', innerHTML: thumbnailHTML });
+    };
+
+    const renderFileCard = (file, index, isPending = true, isUpload = false) => {
+        const card = dom.createElement('div', { className: 'file-card', 'data-filename': file.name || file });
+        const thumb = isPending ? createThumbnail(file) : createServerThumbnail(file.name || file, isUpload);
+        const checkbox = dom.createElement('input', { type: 'checkbox', className: 'file-checkbox' });
+        checkbox.addEventListener('change', (e) => toggleFileSelect(card, e.target.checked, isUpload ? 'uploads' : 'converted'));
+
+        card.addEventListener('click', (e) => {
+            if (['BUTTON', 'I', 'INPUT'].includes(e.target.tagName)) return;
+            checkbox.checked = !checkbox.checked;
+            toggleFileSelect(card, checkbox.checked, isUpload ? 'uploads' : 'converted');
+        });
+
+        const size = isPending ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : (isUpload ? 'Gotowy do konwersji' : `Skonwertowany ${new Date().toLocaleDateString('pl-PL')}`);
+        const typeOrTime = isPending ? (file.type || 'Nieznany typ') : `<i class="fas fa-clock"></i> ${new Date().toLocaleTimeString()}`;
+
+        const actions = isPending 
+            ? [dom.createElement('button', { 
+                className: 'file-action-btn file-action-danger', 
+                onclick: (e) => { e.stopPropagation(); removePendingFile(index); },
+                innerHTML: '<i class="fas fa-trash"></i> Usuń'
+              })] 
+            : [
+                dom.createElement('button', { 
+                    className: `file-action-btn ${isUpload ? 'file-action-primary' : 'file-action-download'}`, 
+                    onclick: (e) => { e.stopPropagation(); (isUpload ? openConvertModal : api.downloadFile)(file.name || file); },
+                    innerHTML: `<i class="fas fa-${isUpload ? 'magic' : 'download'}"></i> ${isUpload ? 'Konwertuj' : 'Pobierz'}`
+                }),
+                dom.createElement('button', { 
+                    className: 'file-action-btn file-action-danger', 
+                    onclick: (e) => { e.stopPropagation(); removeFileSingle(file.name || file, isUpload ? 'uploads' : 'converted'); },
+                    innerHTML: '<i class="fas fa-trash"></i> Usuń'
+                }),
+              ];
+
+        card.append(
+            checkbox,
+            thumb,
+            dom.createElement('div', { className: 'file-info' }, [
+                dom.createElement('div', { className: 'file-name', textContent: file.name || file }),
+                dom.createElement('div', { className: 'file-meta' }, [
+                    dom.createElement('span', { textContent: size }),
+                    dom.createElement('span', { innerHTML: typeOrTime }),
+                ]),
+                isPending ? dom.createElement('div', { className: 'file-progress' }, [dom.createElement('div', { className: 'file-progress-fill' })]) : null,
+                dom.createElement('div', { className: 'file-actions' }, actions),
+            ])
+        );
+        return card;
+    };
+
+    const renderList = (containerId, files, isPending = false, isUpload = false) => {
+        const container = dom.getElement(`#${containerId}`);
+        if (!container) return;
+        const emptyEl = dom.getElement(`#${containerId.replace('List', 'Empty')}`);
+        container.innerHTML = '';
+
+        if (isEmpty(files)) {
+            if (emptyEl) emptyEl.style.display = 'block';
+            return;
+        }
+        if (emptyEl) emptyEl.style.display = 'none';
+
+        const { searchQuery, settings: { sortBy } } = getState();
+        const filteredAndSorted = pipe(
+            filter(f => (f.name || f).toLowerCase().includes(searchQuery.toLowerCase())),
+            withSort(sortBy),
+        )(files);
+
+        filteredAndSorted.forEach((file, idx) => container.append(isPending ? renderFileCard(file, idx, true) : renderFileCard(file, 0, false, isUpload)));
+        if (!isPending) updateBatchButtons(isUpload ? 'uploads' : 'converted');
+    };
+
+    const updateUploadButton = () => {
+        const { selectedFiles } = getState();
+        const uploadBtn = dom.getElement('#uploadBtn');
+        if (uploadBtn) {
+            if (selectedFiles.length > 0) {
+                uploadBtn.innerHTML = `<i class="fas fa-upload"></i> Uploaduj (${selectedFiles.length} plików)`;
+                uploadBtn.classList.add('btn-primary');
+                uploadBtn.classList.remove('upload-btn');
+            } else {
+                uploadBtn.innerHTML = '<i class="fas fa-plus"></i> Wybierz pliki';
+                uploadBtn.classList.remove('btn-primary');
+                uploadBtn.classList.add('upload-btn');
+            }
+        }
+    };
+
+    const handleUpload = async () => {
+        const { selectedFiles } = getState();
+        if (isEmpty(selectedFiles)) return;
+
+        const uploadProgress = dom.getElement('#uploadProgressFill');
+        if (uploadProgress) uploadProgress.parentElement.parentElement.style.display = 'block';
+
+        try {
+            await withProgress(uploadProgress, async () => {
+                await api.uploadFiles(selectedFiles);
+                dispatch({ type: 'CLEAR_PENDING' });
+                await loadAndRenderLists();
+            });
+            showToast('Upload zakończony pomyślnie!');
+        } catch (err) {
+            showToast(`Błąd uploadu: ${err.message}`, 'error');
+        } finally {
+            setTimeout(() => {
+                if (uploadProgress) uploadProgress.parentElement.parentElement.style.display = 'none';
+                updateUploadButton();
+            }, 1500);
+        }
+    };
+
+    const handleConvert = async (form) => {
+        const { currentFileToConvert } = getState();
+        if (!currentFileToConvert) return;
+
+        const options = {
+            format: form.format.value,
+            resolution: form.resolution.value,
+            crf: form.crf.value,
+            bitrate: form.bitrate.value,
+            audioBitrate: form.audioBitrate.value,
+            advanced: form.advanced.value,
+        };
+
+        const validators = [
+            [options.crf, (v) => v >= 18 && v <= 28, 'CRF musi być między 18 a 28.'],
+            [options.format, (v) => ['mp4', 'webm', 'avi', 'mp3', 'wav', 'gif'].includes(v), 'Nieprawidłowy format.'],
+        ];
+        const error = validators.find(([v, pred]) => v && !pred(v))?.[2];
+        if (error) {
+            showToast(error, 'error');
+            return;
+        }
+
+        const files = Array.isArray(currentFileToConvert) ? currentFileToConvert : [currentFileToConvert];
+
+        const convertProgress = dom.getElement('#convertProgressFill');
+        if (convertProgress) convertProgress.parentElement.parentElement.style.display = 'block';
+
+        const submitBtn = form.querySelector('.convert-submit');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Konwertowanie...';
+
+        try {
+            await withProgress(convertProgress, async () => {
+                await api.convertFiles(files, options);
+                await loadAndRenderLists();
+                if (Array.isArray(currentFileToConvert)) dispatch({ type: 'CLEAR_SELECTED_UPLOADS' });
+            });
+            showToast(`Konwersja zakończona: ${files.length} plików gotowych`);
+            dom.getElement('#convertModal').classList.remove('show');
+            dispatch({ type: 'UPDATE_SETTINGS', updates: { defaultFormat: options.format, defaultCrf: options.crf } }); // Save defaults
+        } catch (err) {
+            showToast(`Błąd konwersji: ${err.message}`, 'error');
+        } finally {
+            setTimeout(() => {
+                if (convertProgress) convertProgress.parentElement.parentElement.style.display = 'none';
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }, 1500);
+        }
+    };
+
+    const withProgress = (progressEl, fn) => {
+        if (!progressEl) return fn();
+        const originalWidth = progressEl.style.width;
+        progressEl.style.width = '0%';
+        return fn().finally(() => {
+            progressEl.style.width = '100%';
+            setTimeout(() => progressEl.style.width = originalWidth || '0%', 1500);
+        });
+    };
+
+    const batchDelete = async (section) => {
+        const selected = section === 'uploads' ? getState().selectedUploads : getState().selectedConverted;
+        if (isEmpty(selected)) return;
+        if (!confirm(`Czy na pewno usunąć ${selected.size} plików?`)) return;
+
+        try {
+            await Promise.all(Array.from(selected).map(f => api.deleteFile(f, section)));
+            await loadAndRenderLists();
+            dispatch(section === 'uploads' ? { type: 'CLEAR_SELECTED_UPLOADS' } : { type: 'CLEAR_SELECTED_CONVERTED' });
+            showToast(`${selected.size} plików usuniętych.`);
+        } catch (err) {
+            showToast('Błąd usuwania.', 'error');
+        }
+    };
+
+    const batchDownload = async () => {
+        const selected = getState().selectedConverted;
+        if (isEmpty(selected)) return;
+        Array.from(selected).forEach(api.downloadFile);
+        showToast(`${selected.size} plików pobranych.`);
+    };
+
+    const batchConvert = () => {
+        const selected = Array.from(getState().selectedUploads);
+        if (isEmpty(selected)) return;
+        dispatch({ type: 'SET_CURRENT_CONVERT', files: selected });
+        dom.getElement('#convertModal').classList.add('show');
+        const { settings } = getState();
+        dom.getElement('#format').value = settings.defaultFormat;
+        dom.getElement('#crf').value = settings.defaultCrf;
+    };
+
+    const debounce = (fn, ms) => {
+        let timer;
+        return (...args) => {
+            clearTimeout(timer);
+            timer = setTimeout(() => fn(...args), ms);
+        };
+    };
+    const handleSearch = debounce((query) => {
+        dispatch({ type: 'SET_SEARCH', query });
+        const { currentTab } = getState();
+        if (currentTab === 'pending') renderPendingList();
+        else if (currentTab === 'uploads') renderUploadsList();
+        else if (currentTab === 'converted') renderConvertedList();
+    }, 300);
+
+    const withSort = curry((sortKey, files) => {
+        const sorters = {
+            name: sortBy(f => (f.name || f).toLowerCase()),
+            size: sortBy(f => f.size || 0),
+            date: sortBy(f => new Date(f.lastModified || 0).getTime()),
+        };
+        return sorters[sortKey] ? sorters[sortKey](files) : files;
+    });
+
+    const renderPendingList = () => renderList('pendingList', getState().selectedFiles, true);
+    const renderUploadsList = () => renderList('uploadsList', getState().uploads, false, true);
+    const renderConvertedList = () => renderList('convertedList', getState().converted, false, false);
+
+    const loadAndRenderLists = async () => {
+        try {
+            const { uploads, converted } = await api.loadFiles();
+            dispatch({ type: 'LOAD_FILES', uploads, converted });
+            const { currentTab } = getState();
+            if (currentTab === 'uploads') renderUploadsList();
+            if (currentTab === 'converted') renderConvertedList();
+            updateCounts();
+        } catch (err) {
+            showToast('Błąd ładowania list.', 'error');
+        }
+    };
+
+    const updateCounts = () => {
+        dom.getElement('#pendingCount').textContent = `${getState().selectedFiles.length} plików`;
+        dom.getElement('#uploadsCount').textContent = `${getState().uploads.length} plików`;
+        dom.getElement('#convertedCount').textContent = `${getState().converted.length} plików`;
+    };
+
+    const updateBatchButtons = (section) => {
+        const count = section === 'uploads' ? getState().selectedUploads.size : getState().selectedConverted.size;
+        const batchBtns = dom.getElements(`.${section}Tab .batch-actions .btn`);
+        batchBtns.forEach(btn => {
+            if (btn.classList.contains('batch-convert') || btn.classList.contains('batch-download') || btn.classList.contains('batch-delete')) {
+                btn.style.display = count > 0 ? 'inline-flex' : 'none';
+            }
+        });
+    };
+
+    const updateSelectAllButtons = (section) => {
+        const btn = dom.getElement(`.${section}Tab .btn[onclick="selectAll('${section}')"]`);
+        if (!btn) return;
+        const total = dom.getElements(`#${section}List .file-card`).length;
+        const selected = section === 'uploads' ? getState().selectedUploads.size : getState().selectedConverted.size;
+        if (selected === total && total > 0) {
+            btn.innerHTML = '<i class="fas fa-square"></i> Odznacz wszystkie';
+        } else {
+            btn.innerHTML = '<i class="fas fa-check-square"></i> Zaznacz wszystkie';
+        }
+    };
+
+    const toggleSelectAll = (section) => {
+        const cards = dom.getElements(`#${section}List .file-card`);
+        const total = cards.length;
+        if (total === 0) return;
+        const currentlySelected = section === 'uploads' ? getState().selectedUploads.size : getState().selectedConverted.size;
+        const shouldSelect = currentlySelected < total;
+        cards.forEach(card => {
+            const cb = card.querySelector('input[type="checkbox"]');
+            if (cb.checked !== shouldSelect) {
+                cb.checked = shouldSelect;
+                toggleFileSelect(card, shouldSelect, section);
+            }
+        });
+        updateSelectAllButtons(section);
+        showToast(`${shouldSelect ? 'Zaznaczono' : 'Odznaczono'} wszystkie pliki.`);
+    };
+
+    const revokeAllUrls = () => {
+        getState().fileUrls.forEach(URL.revokeObjectURL);
+        dispatch({ type: 'CLEAR_URLS' });
+    };
+
+    const bindEvents = () => {
+        // Sidebar toggle - fix: only toggle classes correctly
+        const sidebarToggle = dom.getElement('#sidebarToggle');
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', () => {
+                dispatch({ type: 'TOGGLE_SIDEBAR' });
+            });
+        }
+
+        // Tab switch
+        dom.getElements('.tablinks').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const onclick = btn.getAttribute('onclick');
+                const tabMatch = onclick ? onclick.match(/openTab\(event, '([^']+)'\)/) : null;
+                const tabName = tabMatch ? tabMatch[1] : 'pending';
+                openTab(e, tabName);
+            });
+        });
+
+        // File input - change adds files
+        const fileInput = dom.getElement('#fileInput');
+        if (fileInput) {
+            fileInput.addEventListener('change', (e) => {
+                handleFileAdd(Array.from(e.target.files));
+                fileInput.value = '';
+            });
+        }
+
+        // Upload button - first click to select, then upload
+        const uploadBtn = dom.getElement('#uploadBtn');
+        if (uploadBtn) {
+            uploadBtn.addEventListener('click', () => {
+                const { selectedFiles } = getState();
+                if (selectedFiles.length === 0) {
+                    fileInput.click(); // Open file dialog if no files
+                } else {
+                    handleUpload(); // Upload if files present
+                }
+            });
+        }
+
+        // Drag-drop
+        const preventDefaults = (e) => e.preventDefault();
+        const handleDragEnter = (e) => {
+            dispatch({ type: 'INCREMENT_DRAG' });
+            const { dragCounter } = getState();
+            dom.getElement('#dropZone')?.classList.toggle('show', dragCounter > 0);
+        };
+        const handleDragLeave = (e) => {
+            dispatch({ type: 'DECREMENT_DRAG' });
+            const { dragCounter } = getState();
+            dom.getElement('#dropZone')?.classList.toggle('show', dragCounter > 0);
+        };
+        const handleDrop = (e) => {
+            preventDefaults(e);
+            handleDragLeave(e);
+            handleFileAdd(Array.from(e.dataTransfer.files));
+        };
+        const dragElements = [document, document.body, dom.getElement('#uploadZone')].filter(Boolean);
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
+            dragElements.forEach(el => {
+                el.addEventListener(ev, preventDefaults, false);
+                if (ev === 'dragenter') el.addEventListener(ev, handleDragEnter, false);
+                if (ev === 'dragleave') el.addEventListener(ev, handleDragLeave, false);
+                if (ev === 'drop') el.addEventListener(ev, handleDrop, false);
+            });
+        });
+
+        // Search
+        const globalSearch = dom.getElement('#globalSearch');
+        if (globalSearch) globalSearch.addEventListener('input', (e) => handleSearch(e.target.value));
+
+        // Modal
+        const convertForm = dom.getElement('#convertForm');
+        if (convertForm) {
+            convertForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                handleConvert(convertForm);
+            });
+        }
+        const closeModal = dom.getElement('.close');
+        if (closeModal) closeModal.addEventListener('click', () => dom.getElement('#convertModal')?.classList.remove('show'));
+        window.addEventListener('click', (e) => {
+            if (e.target.id === 'convertModal') dom.getElement('#convertModal')?.classList.remove('show');
+        });
+
+        // Refresh
+        const refreshBtn = dom.getElement('button[onclick="refreshLists()"]');
+        if (refreshBtn) refreshBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); loadAndRenderLists(); });
+
+        // Batch
+        dom.getElements('.batch-delete').forEach(btn => btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); const tab = btn.closest('.tabcontent').id; batchDelete(tab); }));
+        dom.getElements('.batch-convert').forEach(btn => btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); batchConvert(); }));
+        dom.getElements('.batch-download').forEach(btn => btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); batchDownload(); }));
+
+        // Select all - override onclick
+        dom.getElements('.btn[onclick*="selectAll"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const onclick = btn.getAttribute('onclick');
+                const sectionMatch = onclick.match(/selectAll\('([^']+)'\)/);
+                const section = sectionMatch ? sectionMatch[1] : '';
+                if (section) toggleSelectAll(section);
+            });
+        });
+
+        // Settings - basic form
+        const settingsTab = dom.getElement('#settings');
+        if (settingsTab) {
+            const glassDiv = settingsTab.querySelector('.glass');
+            if (glassDiv) {
+                glassDiv.innerHTML = `
+                    <form id="settingsForm">
+                        <div class="form-group">
+                            <label for="defaultFormat">Domyślny format</label>
+                            <select id="defaultFormat">
+                                <option value="mp4">MP4</option>
+                                <option value="webm">WebM</option>
+                                <option value="avi">AVI</option>
+                                <option value="mp3">MP3</option>
+                                <option value="wav">WAV</option>
+                                <option value="gif">GIF</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="defaultCrf">Domyślny CRF</label>
+                            <input type="number" id="defaultCrf" min="18" max="28" value="23">
+                        </div>
+                        <div class="form-group">
+                            <label for="sortBy">Sortuj według</label>
+                            <select id="sortBy">
+                                <option value="name">Nazwa</option>
+                                <option value="size">Rozmiar</option>
+                                <option value="date">Data</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Zapisz ustawienia</button>
+                    </form>
+                `;
+                const settingsForm = glassDiv.querySelector('#settingsForm');
+                settingsForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(settingsForm);
+                    const updates = Object.fromEntries(formData);
+                    dispatch({ type: 'UPDATE_SETTINGS', updates });
+                    showToast('Ustawienia zapisane!');
+                });
+                // Load current settings
+                const { settings } = getState();
+                dom.getElement('#defaultFormat').value = settings.defaultFormat;
+                dom.getElement('#defaultCrf').value = settings.defaultCrf;
+                dom.getElement('#sortBy').value = settings.sortBy;
+            }
+        }
+
+        // Keyboard
+        window.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === '/') dom.getElement('#globalSearch')?.focus();
+            if (e.key === 'Escape') dom.getElement('#convertModal')?.classList.remove('show');
+            if (e.ctrlKey && e.key === 'a') {
+                e.preventDefault();
+                const tab = getState().currentTab;
+                if (['uploads', 'converted'].includes(tab)) toggleSelectAll(tab);
+            }
+        });
+    };
+
+    const openTab = (evt, tabName) => {
+        dom.getElements('.tabcontent').forEach(t => { t.style.display = 'none'; t.classList.remove('active'); });
+        dom.getElements('.tablinks').forEach(l => l.classList.remove('active'));
+        const tabEl = dom.getElement(`#${tabName}`);
+        if (tabEl) {
+            tabEl.style.display = 'block';
+            tabEl.classList.add('active');
+        }
+        evt.currentTarget.classList.add('active');
+
+        dispatch({ type: 'SET_TAB', tab: tabName });
+        const iconMatch = evt.currentTarget.querySelector('i')?.className.match(/fa-(\w+)/);
+        const icon = iconMatch ? iconMatch[1] : 'home';
+        const titleSpan = evt.currentTarget.querySelector('span')?.textContent || tabName;
+        const currentTitle = dom.getElement('#currentTitle');
+        if (currentTitle) currentTitle.innerHTML = `<i class="fas fa-${icon}"></i> ${titleSpan}`;
+
+        const globalSearch = dom.getElement('#globalSearch');
+        if (globalSearch) {
+            globalSearch.value = '';
+            dispatch({ type: 'SET_SEARCH', query: '' });
+        }
+        if (tabName === 'pending') renderPendingList();
+        else if (tabName === 'uploads') {
+            renderUploadsList();
+            updateSelectAllButtons('uploads');
+        }
+        else if (tabName === 'converted') {
+            renderConvertedList();
+            updateSelectAllButtons('converted');
+        }
+
+        const tabContainer = dom.getElement('.tab-content-container');
+        if (tabContainer) tabContainer.scrollTop = 0;
+    };
+
+    const showToast = (msg, type = 'success') => {
+        const toast = dom.getElement('#toast');
+        if (toast) {
+            toast.textContent = msg;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => toast.classList.remove('show'), 4000);
+        }
+    };
+
+    const removePendingFile = (index) => {
+        const { selectedFiles } = getState();
+        dispatch({ type: 'REMOVE_FILE', fileName: selectedFiles[index]?.name });
+        renderPendingList();
+        updateUploadButton();
+        if (selectedFiles.length === 1) {
+            const uploadProgress = dom.getElement('.upload-progress');
+            if (uploadProgress) uploadProgress.style.display = 'none';
+        }
+        showToast('Plik usunięty z kolejki.');
+    };
+
+    const toggleFileSelect = (card, checked, section) => {
+        const fileName = card.dataset.filename;
+        if (section === 'uploads') {
+            dispatch({ type: 'TOGGLE_SELECT_UPLOAD', fileName, selected: checked });
+        } else {
+            dispatch({ type: 'TOGGLE_SELECT_CONVERTED', fileName, selected: checked });
+        }
+        updateBatchButtons(section);
+        updateSelectAllButtons(section);
+    };
+
+    const openConvertModal = (fileName) => {
+        dispatch({ type: 'SET_CURRENT_CONVERT', file: fileName });
+        dom.getElement('#convertModal')?.classList.add('show');
+        const submitBtn = dom.getElement('.convert-submit');
+        if (submitBtn) submitBtn.disabled = false;
+    };
+
+    const removeFileSingle = async (fileName, dir) => {
+        if (!confirm(`Czy na pewno usunąć "${fileName}"?`)) return;
+        try {
+            await api.deleteFile(fileName, dir);
+            await loadAndRenderLists();
+            showToast('Plik usunięty pomyślnie.');
+            toggleFileSelect({ dataset: { filename: fileName } }, false, dir); // Clear selection
+        } catch (err) {
+            showToast('Błąd usuwania pliku.', 'error');
+        }
+    };
+
+    const init = () => {
+        loadAndRenderLists();
+        renderPendingList();
+        updateCounts();
+        updateUploadButton();
+        updateSelectAllButtons('uploads');
+        updateSelectAllButtons('converted');
+
+        subscribe((state) => {
+            const appLayout = dom.getElement('#appLayout');
+            if (appLayout) appLayout.classList.toggle('sidebar-collapsed', state.sidebarCollapsed);
+            const sidebar = dom.getElement('#sidebar');
+            if (sidebar) sidebar.classList.toggle('collapsed', state.sidebarCollapsed);
+            const header = dom.getElement('#header');
+            const mainContent = dom.getElement('#mainContent');
+            if (header) header.classList.toggle('collapsed-margin', state.sidebarCollapsed);
+            if (mainContent) mainContent.classList.toggle('collapsed-margin', state.sidebarCollapsed);
+            const toggleIcon = dom.getElement('#sidebarToggle i');
+            if (toggleIcon) toggleIcon.className = state.sidebarCollapsed ? 'fas fa-times' : 'fas fa-bars';
+
+            const dropZone = dom.getElement('#dropZone');
+            if (dropZone) dropZone.classList.toggle('show', state.dragCounter > 0);
+
+            updateCounts();
+            if (state.currentTab === 'uploads') updateSelectAllButtons('uploads');
+            if (state.currentTab === 'converted') updateSelectAllButtons('converted');
+        });
+
+        const defaultOpen = dom.getElement('#defaultOpen');
+        if (defaultOpen) setTimeout(() => defaultOpen.click(), 0); // Delay to avoid init issues
+
+        window.addEventListener('beforeunload', revokeAllUrls);
+    };
+
+    // Expose
+    window.openTab = openTab;
+    window.removePendingFile = removePendingFile;
+    window.toggleFileSelect = toggleFileSelect;
+    window.openConvertModal = openConvertModal;
+    window.removeFileSingle = removeFileSingle;
+    window.downloadFile = api.downloadFile;
+    window.selectAll = toggleSelectAll; // Now toggle
+    window.batchConvert = batchConvert;
+    window.batchDownload = batchDownload;
+    window.batchDelete = batchDelete;
+    window.refreshLists = loadAndRenderLists;
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            bindEvents();
+            init();
+        });
+    } else {
+        bindEvents();
+        init();
     }
-};
-
-// Ulepszenie: Ładuj settings jeśli potrzeba
-if (currentTab === 'settings') {
-    // Tutaj kod dla settings, np. fetch('/settings')
-}
-
-// Cleanup
-window.addEventListener('beforeunload', () => {
-    fileUrls.forEach(url => URL.revokeObjectURL(url));
-});
-
-// Initialization
-renderPendingList();
-loadFilesLists();
+})();
