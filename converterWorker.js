@@ -1,121 +1,311 @@
+/**
+ * ============================================================================
+ * MEDIAFLOW WORKER v4.5 - FFmpeg Processor
+ * ============================================================================
+ * * Dedicated Thread for CPU-intensive media processing.
+ * * Handles:
+ * - FFmpeg process spawning and management
+ * - Real-time progress parsing (Duration vs Time)
+ * - Complex filter chains (GIF Palette, Scaling, CRF)
+ * - Intelligent cleanup and error reporting
+ * * @author Gemini AI
+ * @version 4.5.0
+ * @license MIT
+ */
+
 const { parentPort, workerData } = require('worker_threads');
 const { spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
+const os = require('os');
 
-const config = {
-    uploadsDir: path.join(__dirname, 'uploads'),
-    convertedDir: path.join(__dirname, 'converted'),
+// Configuration Constants
+const CONFIG = {
+    DIRS: {
+        UPLOADS: path.join(__dirname, 'uploads'),
+        CONVERTED: path.join(__dirname, 'converted'),
+        TEMP: path.join(__dirname, 'temp') // For intermediate files like palettes
+    },
+    FFMPEG: {
+        BINARY: 'ffmpeg',
+        TIMEOUT: 0, // No timeout
+        NICE_LEVEL: 10 // OS priority (if supported via nice, but logic handled by node)
+    }
 };
 
-async function convertFile() {
-    const { inputFile, format, resolution, crf, bitrate, startTime } = workerData;
-    const threadStart = Date.now();
-    try {
-        await fs.mkdir(config.uploadsDir, { recursive: true });
-        await fs.mkdir(config.convertedDir, { recursive: true });
+/**
+ * Class encapsulating the FFmpeg conversion logic.
+ * Designed to be instantiated once per worker thread execution.
+ */
+class FFmpegProcessor {
+    constructor(data) {
+        this.data = data;
+        this.inputFile = data.inputFile;
+        this.format = data.format;
+        this.resolution = data.resolution;
+        this.crf = data.crf;
+        this.bitrate = data.bitrate;
+        this.audioBitrate = data.audioBitrate;
 
-        const inputPath = path.join(config.uploadsDir, inputFile);
-        const outputName = inputFile.replace(/\.[^/.]+$/, `.${format}`);
-        const outputPath = path.join(config.convertedDir, outputName);
+        // Path setup
+        this.inputPath = path.join(CONFIG.DIRS.UPLOADS, this.inputFile);
+        
+        // Generate output filename
+        const namePart = path.parse(this.inputFile).name;
+        // Ensure unique output name if needed, or overwrite based on flag (we use -y)
+        this.outputFilename = `${namePart}_converted.${this.format}`;
+        this.outputPath = path.join(CONFIG.DIRS.CONVERTED, this.outputFilename);
+        
+        this.durationSec = 0;
+        this.lastProgress = -1;
+    }
 
-        // Sprawdź input
-        await fs.access(inputPath);
+    /**
+     * Main entry point for the conversion process.
+     */
+    async start() {
+        const startTime = Date.now();
+        
+        try {
+            await this.ensureDirectories();
+            await this.validateInput();
 
-        let ffmpegArgs = ['-i', inputPath, '-y']; // -y do nadpisywania zawsze
+            console.log(`[Worker] Starting processing: ${this.inputFile} -> ${this.format}`);
 
-        // Optymalizacje w zależności od formatu
-        if (format === 'gif') {
-            // Specjalna obsługa GIF: dwuprzebiegowa z paletą dla szybkości i jakości
-            const palettePath = path.join(config.convertedDir, 'palette.png');
-            const tempOutput = path.join(config.convertedDir, 'temp.gif');
-
-            // Krok 1: Generuj paletę (szybki, niski fps, mała rozdzielczość)
-            let paletteArgs = ['-i', inputPath, '-vf', 'fps=10,scale=320:-1:flags=lanczos,palettegen'];
-            if (resolution) {
-                paletteArgs.splice(paletteArgs.length - 2, 1, `fps=10,scale=${resolution}:flags=lanczos,palettegen`);
-            }
-            paletteArgs.push(palettePath);
-
-            console.log(`[Thread Worker] Krok 1 GIF (paleta): ${inputFile}`);
-            await runFFmpeg(paletteArgs);
-
-            // Krok 2: Konwertuj z paletą (ogranicz do 256 kolorów, dither)
-            let gifArgs = ['-i', inputPath, '-i', palettePath, '-lavfi', '[0:v][1:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle'];
-            if (resolution) {
-                gifArgs.splice(gifArgs.length - 2, 1, `[0:v]scale=${resolution}:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`);
-            }
-            if (bitrate) {
-                gifArgs.push('-b:v', bitrate); // Dla GIF to limit loop etc., ale bitrate nie idealny
-            }
-            gifArgs.push(tempOutput);
-
-            console.log(`[Thread Worker] Krok 2 GIF (konwersja): ${inputFile} -> ${outputName}`);
-            await runFFmpeg(gifArgs);
-
-            // Opcjonalnie: limituj długość GIF do np. 10s dla szybkości (usuń jeśli niepotrzebne)
-            // const duration = 10; // sekundy
-            // const trimArgs = ['-i', tempOutput, '-t', duration.toString(), '-y', outputPath];
-            // await runFFmpeg(trimArgs);
-            // await fs.unlink(tempOutput);
-
-            // Usuń paletę i temp
-            await fs.unlink(palettePath);
-            // await fs.unlink(tempOutput); // jeśli trim
-
-        } else {
-            // Dla innych formatów: standardowe args z optymalizacjami
-            if (resolution) ffmpegArgs.push('-s', resolution);
-            if (bitrate) ffmpegArgs.push('-b:v', bitrate);
-            if (format === 'mp4' || format === 'webm') {
-                ffmpegArgs.push('-preset', 'fast', '-crf', crf.toString()); // Szybszy preset
-            } else if (format === 'mp3' || format === 'wav') {
-                ffmpegArgs.push('-vn'); // Wyłącz wideo dla audio
-                if (format === 'mp3') ffmpegArgs.push('-b:a', '128k'); // Domyślny bitrate audio
+            if (this.format === 'gif') {
+                await this.processGIF();
             } else {
-                ffmpegArgs.push('-crf', crf.toString()); // Ogólne
+                await this.processStandard();
             }
-            ffmpegArgs.push(outputPath);
+
+            // Cleanup original file if needed (optional logic, kept safe for now)
+            // await fs.unlink(this.inputPath).catch(() => {}); 
+
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+            parentPort.postMessage({ 
+                success: true, 
+                outputName: this.outputFilename,
+                meta: { elapsed }
+            });
+
+        } catch (err) {
+            console.error(`[Worker Error] ${err.message}`);
+            
+            // Try to cleanup partial output
+            await fs.unlink(this.outputPath).catch(() => {});
+            
+            parentPort.postMessage({ 
+                error: err.message,
+                details: err.stack
+            });
+        }
+    }
+
+    /**
+     * Ensures required directories exist.
+     */
+    async ensureDirectories() {
+        await fs.mkdir(CONFIG.DIRS.UPLOADS, { recursive: true });
+        await fs.mkdir(CONFIG.DIRS.CONVERTED, { recursive: true });
+        await fs.mkdir(CONFIG.DIRS.TEMP, { recursive: true });
+    }
+
+    /**
+     * Checks if input file exists and is readable.
+     */
+    async validateInput() {
+        try {
+            await fs.access(this.inputPath);
+        } catch (e) {
+            throw new Error(`Input file not found: ${this.inputPath}`);
+        }
+    }
+
+    /**
+     * Handles High-Quality GIF generation using a 2-pass approach.
+     * Pass 1: Generate optimal color palette.
+     * Pass 2: Apply palette to generate GIF.
+     */
+    async processGIF() {
+        const palettePath = path.join(CONFIG.DIRS.TEMP, `palette_${Date.now()}.png`);
+        
+        // --- Pass 1: Generate Palette ---
+        // Filters: fps limit, scale, lanczos interpolation, palettegen
+        const fps = 15; // Good balance for GIFs
+        const scaleFilter = this.resolution 
+            ? `scale=${this.resolution.replace('x', ':')}:flags=lanczos` 
+            : 'scale=480:-1:flags=lanczos'; // Default reasonable size for GIF
+
+        const filters1 = `fps=${fps},${scaleFilter},palettegen`;
+
+        console.log('[Worker] GIF Pass 1: Generating Palette');
+        await this.runFFmpeg([
+            '-y', 
+            '-i', this.inputPath, 
+            '-vf', filters1, 
+            palettePath
+        ]);
+
+        // --- Pass 2: Render GIF ---
+        // Filters: scale (again), paletteuse with dither
+        const filters2 = `fps=${fps},${scaleFilter} [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=5`;
+
+        console.log('[Worker] GIF Pass 2: Rendering');
+        await this.runFFmpeg([
+            '-y',
+            '-i', this.inputPath,
+            '-i', palettePath,
+            '-filter_complex', filters2,
+            this.outputPath
+        ]);
+
+        // Cleanup palette
+        await fs.unlink(palettePath).catch(() => {});
+    }
+
+    /**
+     * Handles standard Video/Audio conversion (MP4, WEBM, MP3, etc.).
+     */
+    async processStandard() {
+        const args = ['-y', '-i', this.inputPath];
+
+        // --- Video Codec Settings ---
+        if (['mp4', 'mkv', 'mov'].includes(this.format)) {
+            args.push('-c:v', 'libx264', '-preset', 'fast'); // 'fast' is good trade-off
+            args.push('-pix_fmt', 'yuv420p'); // Ensure compatibility
+            args.push('-movflags', '+faststart'); // Web optim
+        } else if (this.format === 'webm') {
+            args.push('-c:v', 'libvpx-vp9');
+            args.push('-row-mt', '1'); // Multi-threading for VP9
+        } else if (['mp3', 'wav', 'aac', 'flac'].includes(this.format)) {
+            args.push('-vn'); // No video
         }
 
-        console.log(`[Thread Worker] Konwertuję: ${inputFile} -> ${outputName}`);
+        // --- Quality Control (CRF vs Bitrate) ---
+        // Only apply CRF/Bitrate if video exists
+        if (!['mp3', 'wav', 'aac', 'flac'].includes(this.format)) {
+            if (this.bitrate) {
+                args.push('-b:v', this.bitrate);
+            } else if (this.crf) {
+                args.push('-crf', this.crf.toString());
+            } else {
+                // Default fallback
+                args.push('-crf', '23'); 
+            }
+        }
 
-        await runFFmpeg(ffmpegArgs);
+        // --- Filters (Scaling) ---
+        const filters = [];
+        if (this.resolution) {
+            // Handle "1920x1080" or "-1:720"
+            const res = this.resolution.trim().replace('x', ':');
+            filters.push(`scale=${res}`);
+        }
 
-        await fs.unlink(inputPath).catch(err => console.error('Błąd usuwania oryginału:', err));
-        parentPort.postMessage({ success: true, outputName });
-    } catch (error) {
-        const threadDuration = (Date.now() - threadStart) / 1000;
-        console.error(`Thread error (${threadDuration}s):`, error);
-        parentPort.postMessage({ error: error.message });
+        if (filters.length > 0) {
+            args.push('-vf', filters.join(','));
+        }
+
+        // --- Audio Settings ---
+        if (this.audioBitrate) {
+            args.push('-b:a', this.audioBitrate);
+        }
+        
+        if (this.format === 'mp3') {
+            args.push('-c:a', 'libmp3lame', '-q:a', '2'); // VBR High Quality
+        }
+
+        // Output
+        args.push(this.outputPath);
+
+        await this.runFFmpeg(args);
+    }
+
+    /**
+     * Spawns the FFmpeg process and monitors standard error for progress.
+     * @param {string[]} args - FFmpeg arguments
+     */
+    runFFmpeg(args) {
+        return new Promise((resolve, reject) => {
+            const ffmpeg = spawn(CONFIG.FFMPEG.BINARY, args, {
+                cwd: __dirname,
+                stdio: ['ignore', 'pipe', 'pipe'] // Ignore stdin, pipe out/err
+            });
+
+            let stderrBuffer = '';
+
+            ffmpeg.stderr.on('data', (data) => {
+                const str = data.toString();
+                stderrBuffer += str;
+                
+                this.parseProgress(str);
+            });
+
+            ffmpeg.on('close', (code) => {
+                if (code === 0) {
+                    resolve();
+                } else {
+                    // Extract last few lines of error log for debugging
+                    const errorLog = stderrBuffer.split('\n').slice(-10).join('\n');
+                    reject(new Error(`FFmpeg exited with code ${code}. Log:\n${errorLog}`));
+                }
+            });
+
+            ffmpeg.on('error', (err) => {
+                reject(new Error(`Failed to spawn FFmpeg: ${err.message}`));
+            });
+        });
+    }
+
+    /**
+     * Parses FFmpeg stderr output to calculate percentage.
+     * Looks for "Duration: HH:MM:SS" and "time=HH:MM:SS".
+     * @param {string} logChunk - Chunk of stderr
+     */
+    parseProgress(logChunk) {
+        // 1. Extract Duration (only once)
+        if (this.durationSec === 0) {
+            const durationMatch = logChunk.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+            if (durationMatch) {
+                const h = parseFloat(durationMatch[1]);
+                const m = parseFloat(durationMatch[2]);
+                const s = parseFloat(durationMatch[3]);
+                this.durationSec = (h * 3600) + (m * 60) + s;
+            }
+        }
+
+        // 2. Extract Current Time
+        if (this.durationSec > 0) {
+            const timeMatch = logChunk.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+            if (timeMatch) {
+                const h = parseFloat(timeMatch[1]);
+                const m = parseFloat(timeMatch[2]);
+                const s = parseFloat(timeMatch[3]);
+                const currentSec = (h * 3600) + (m * 60) + s;
+
+                const percent = Math.min(99, Math.round((currentSec / this.durationSec) * 100));
+
+                // Throttle updates: send only if changed
+                if (percent !== this.lastProgress) {
+                    this.lastProgress = percent;
+                    parentPort.postMessage({ progress: percent });
+                }
+            }
+        }
     }
 }
 
-async function runFFmpeg(args) {
-    return new Promise((resolve, reject) => {
-        const ffmpeg = spawn('ffmpeg', args, { 
-            stdio: ['ignore', 'pipe', 'pipe'],
-            cwd: __dirname 
-        });
+// ==========================================================================
+// WORKER EXECUTION
+// ==========================================================================
 
-        let ffmpegError = '';
-        ffmpeg.stderr.on('data', (data) => {
-            ffmpegError += data.toString();
-            // Opcjonalnie loguj progress, ale dla szybkości pomiń
-        });
+// Wrap in async IFFE to handle top-level await if needed, or just cleaner scope
+(async () => {
+    if (!workerData) {
+        console.error('Worker started without data.');
+        process.exit(1);
+    }
 
-        ffmpeg.on('close', (code) => {
-            if (code === 0) {
-                resolve();
-            } else {
-                reject(new Error(`FFmpeg failed: ${code} - ${ffmpegError.trim() || 'Unknown'}`));
-            }
-        });
-
-        ffmpeg.on('error', (err) => {
-            reject(err);
-        });
-    });
-}
-
-convertFile();
+    const processor = new FFmpegProcessor(workerData);
+    await processor.start();
+})();

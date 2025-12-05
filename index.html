@@ -3,233 +3,367 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MediaFlow - Zaawansowane GUI</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>MediaFlow v4.5 Enterprise - Next Gen Media Processor</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="app-layout" id="appLayout">
-        <!-- Sidebar Navigation (Vertical Tabs) -->
-        <aside class="sidebar glass tab" id="sidebar">
+        
+        <aside class="sidebar glass" id="sidebar">
             <div class="logo">
-                <i class="fas fa-video"></i>
+                <i class="fas fa-play-circle fa-beat-fade" style="--fa-animation-duration: 3s;"></i>
                 <span>MediaFlow</span>
             </div>
+            
             <ul class="nav-menu">
                 <li>
-                    <button class="tablinks active" onclick="openTab(event, 'pending')" id="defaultOpen">
+                    <button class="tablinks active" onclick="openTab(event, 'pending')" id="defaultOpen" title="Kolejka plików do wysłania">
                         <i class="fas fa-cloud-upload-alt"></i>
                         <span>Do wgrania</span>
+                        <span class="nav-badge" id="navPendingCount" style="display:none">0</span>
                     </button>
                 </li>
                 <li>
-                    <button class="tablinks" onclick="openTab(event, 'uploads')">
+                    <button class="tablinks" onclick="openTab(event, 'uploads')" title="Biblioteka plików źródłowych">
                         <i class="fas fa-folder-open"></i>
-                        <span>Przed konwersją</span>
+                        <span>Biblioteka</span>
                     </button>
                 </li>
                 <li>
-                    <button class="tablinks" onclick="openTab(event, 'converted')">
+                    <button class="tablinks" onclick="openTab(event, 'converted')" title="Pliki przetworzone i gotowe">
                         <i class="fas fa-check-circle"></i>
-                        <span>Po konwersji</span>
+                        <span>Gotowe</span>
                     </button>
                 </li>
+                
+                <li style="margin-top: auto;"></li> 
+                
                 <li>
-                    <button class="tablinks" onclick="openTab(event, 'settings')">
+                    <button class="tablinks" onclick="openTab(event, 'settings')" title="Konfiguracja systemu">
                         <i class="fas fa-cog"></i>
                         <span>Ustawienia</span>
                     </button>
                 </li>
             </ul>
+
             <button class="sidebar-toggle" id="sidebarToggle" title="Zwiń/rozwiń pasek boczny">
-                <i class="fas fa-bars"></i>
+                <i class="fas fa-chevron-left"></i>
             </button>
         </aside>
 
-        <!-- Header -->
-        <header class="header" id="header">
-            <div class="section-title">
-                <i class="fas fa-home"></i>
-                <span id="currentTitle">Do wgrania</span>
+        <header class="header glass" id="header">
+            <div class="header-left">
+                <div class="section-title">
+                    <i class="fas fa-layer-group" id="headerIcon"></i>
+                    <span id="currentTitle">MediaFlow</span>
+                </div>
             </div>
-            <div class="header-actions">
-                <input type="text" class="search-input" id="globalSearch" placeholder="Szukaj plików...">
-                <button class="btn btn-secondary" onclick="refreshLists()">
-                    <i class="fas fa-refresh"></i> Odśwież
+
+            <div class="header-center" id="headerToolbar">
+                <button class="btn btn-ghost btn-sm" id="btnSelectAll" onclick="globalSelectAll()" title="Zaznacz/Odznacz wszystko">
+                    <i class="far fa-square"></i>
+                    <span class="desktop-only">Zaznacz wszystko</span>
+                </button>
+
+                <div class="divider-vertical"></div>
+
+                <div class="batch-actions-group disabled" id="batchActions">
+                    <button class="btn btn-primary btn-sm hidden-action" id="btnBatchConvert" onclick="batchConvert()" title="Konwertuj zaznaczone">
+                        <i class="fas fa-magic"></i>
+                        <span class="desktop-only">Konwertuj</span>
+                    </button>
+                    
+                    <button class="btn btn-success btn-sm hidden-action" id="btnBatchDownload" onclick="batchDownload()" title="Pobierz zaznaczone">
+                        <i class="fas fa-download"></i>
+                        <span class="desktop-only">Pobierz</span>
+                    </button>
+
+                    <button class="btn btn-danger btn-sm" id="btnBatchDelete" onclick="globalBatchDelete()" title="Usuń zaznaczone">
+                        <i class="fas fa-trash-alt"></i>
+                        <span class="desktop-only">Usuń</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="header-right">
+                <div class="search-wrapper" id="searchContainer">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" class="search-input" id="globalSearch" placeholder="Szukaj plików..." autocomplete="off">
+                    <button class="search-clear" id="searchClear" onclick="clearSearch()" style="display:none;">&times;</button>
+                </div>
+                
+                <button class="btn btn-secondary icon-only" onclick="refreshLists()" title="Odśwież dane">
+                    <i class="fas fa-sync-alt" id="refreshIcon"></i>
                 </button>
             </div>
         </header>
 
-        <!-- Main Content (Tab Content Container) -->
         <main class="main-content tab-content-container" id="mainContent">
-            <!-- Pending Tab -->
+            
             <div id="pending" class="tabcontent active section">
                 <div class="upload-zone" id="uploadZone">
-                    <i class="fas fa-cloud-upload-alt"></i>
-                    <h3>Przeciągnij pliki lub kliknij, aby wybrać</h3>
-                    <p style="color: var(--text-secondary); margin-top: 0.5rem;">Obsługiwane: MP4, AVI, MP3, JPG i inne formaty multimedialne</p>
-                    <input type="file" id="fileInput" multiple style="display: none;">
-                    <button class="upload-btn" id="uploadBtn">
-                        <i class="fas fa-plus"></i> Wybierz pliki
+                    <div class="upload-content">
+                        <div class="upload-icon-wrapper">
+                            <i class="fas fa-cloud-upload-alt main-icon"></i>
+                            <i class="fas fa-plus-circle sub-icon"></i>
+                        </div>
+                        <h3>Upuść pliki tutaj</h3>
+                        <p class="text-muted">MP4, MOV, MKV, MP3, WAV, JPG, PNG (Max 4GB)</p>
+                        
+                        <input type="file" id="fileInput" multiple style="display: none;">
+                        <button class="btn btn-secondary mt-4" id="selectFilesBtn">
+                            <i class="fas fa-folder-open"></i> Wybierz z dysku
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="queue-header mt-4">
+                    <h4>Kolejka plików <small class="text-muted" id="pendingCountLabel">(0)</small></h4>
+                    <button class="btn btn-ghost btn-sm text-danger" id="clearQueueBtn" style="display:none" onclick="clearPendingQueue()">
+                        Wyczyść wszystko
                     </button>
-                    <div class="upload-progress">
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="uploadProgressFill"></div>
+                </div>
+
+                <div id="pendingList" class="files-grid queue-grid"></div>
+                
+                <div id="pendingEmpty" class="empty-state">
+                    <div class="empty-icon"><i class="fas fa-inbox"></i></div>
+                    <p>Kolejka jest pusta.<br>Dodaj pliki powyżej, aby rozpocząć.</p>
+                </div>
+
+                <div class="upload-actions-bar glass" id="uploadActionBar">
+                    <div class="upload-status">
+                        <span id="uploadTotalSize">0 MB</span>
+                        <div class="progress-bar mini-progress">
+                            <div class="progress-fill" id="uploadGlobalProgress"></div>
                         </div>
                     </div>
-                </div>
-                <div class="section-header">
-                    <div class="section-stats">
-                        <span id="pendingCount">0 plików</span>
-                    </div>
-                </div>
-                <div id="pendingList" class="files-grid"></div>
-                <div id="pendingEmpty" class="empty-state" style="display: none;">
-                    <i class="fas fa-folder-open"></i>
-                    <p>Brak plików do wgrania. Dodaj je za pomocą przycisku powyżej!</p>
+                    <button class="btn btn-primary btn-lg pulse-on-hover" id="startUploadBtn">
+                        <i class="fas fa-rocket"></i> Rozpocznij wysyłanie
+                    </button>
                 </div>
             </div>
 
-            <!-- Uploads Tab -->
-            <div id="uploads" class="tabcontent section" id="uploadsTab">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <i class="fas fa-folder-open"></i> Pliki przed konwersją
-                    </h2>
-                    <div class="section-stats">
-                        <span id="uploadsCount">0 plików</span>
-                    </div>
-                    <div class="batch-actions">
-                        <button class="btn btn-secondary" onclick="selectAll('uploads')">
-                            <i class="fas fa-check-square"></i> Zaznacz wszystkie
-                        </button>
-                        <button class="btn btn-primary batch-convert" onclick="batchConvert()" style="display: none;">
-                            <i class="fas fa-magic"></i> Konwertuj zaznaczone
-                        </button>
-                        <button class="btn btn-danger batch-delete" onclick="batchDelete('uploads')" style="display: none;">
-                            <i class="fas fa-trash"></i> Usuń zaznaczone
-                        </button>
-                    </div>
-                </div>
+            <div id="uploads" class="tabcontent section">
                 <div id="uploadsList" class="files-grid"></div>
+                
                 <div id="uploadsEmpty" class="empty-state" style="display: none;">
-                    <i class="fas fa-folder"></i>
-                    <p>Brak plików do konwersji. Wgraj je z zakładki "Do wgrania".</p>
+                    <div class="empty-icon"><i class="fas fa-film"></i></div>
+                    <p>Biblioteka jest pusta.<br>Wgraj pliki w zakładce "Do wgrania".</p>
                 </div>
             </div>
 
-            <!-- Converted Tab -->
-            <div id="converted" class="tabcontent section" id="convertedTab">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <i class="fas fa-check-circle"></i> Pliki po konwersji
-                    </h2>
-                    <div class="section-stats">
-                        <span id="convertedCount">0 plików</span>
-                    </div>
-                    <div class="batch-actions">
-                        <button class="btn btn-secondary" onclick="selectAll('converted')">
-                            <i class="fas fa-check-square"></i> Zaznacz wszystkie
-                        </button>
-                        <button class="btn btn-success batch-download" onclick="batchDownload()" style="display: none;">
-                            <i class="fas fa-download"></i> Pobierz zaznaczone
-                        </button>
-                        <button class="btn btn-danger batch-delete" onclick="batchDelete('converted')" style="display: none;">
-                            <i class="fas fa-trash"></i> Usuń zaznaczone
-                        </button>
-                    </div>
-                </div>
+            <div id="converted" class="tabcontent section">
                 <div id="convertedList" class="files-grid"></div>
+                
                 <div id="convertedEmpty" class="empty-state" style="display: none;">
-                    <i class="fas fa-trophy"></i>
-                    <p>Brak skonwertowanych plików. Rozpocznij konwersję!</p>
+                    <div class="empty-icon"><i class="fas fa-check-double"></i></div>
+                    <p>Brak skonwertowanych plików.<br>Użyj "Biblioteki" aby zlecić zadania.</p>
                 </div>
             </div>
 
-            <!-- Settings Tab -->
             <div id="settings" class="tabcontent section">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <i class="fas fa-cog"></i> Ustawienia
-                    </h2>
-                </div>
-                <div class="glass" style="padding: 2rem; border-radius: var(--border-radius);">
-                    <h3>Domyślne opcje konwersji</h3>
-                    <p>Tutaj możesz ustawić domyślne wartości dla konwersji. (Implementacja w backendzie)</p>
-                    <!-- Dodaj formę dla ustawień -->
+                <div class="settings-container">
+                    
+                    <div class="settings-card glass">
+                        <div class="card-header">
+                            <i class="fas fa-sliders-h"></i>
+                            <h3>Parametry Konwersji</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Domyślny Format</label>
+                                    <select id="settingDefaultFormat">
+                                        <option value="mp4">MP4 (Uniwersalny, H.264)</option>
+                                        <option value="webm">WebM (VP9, Web Optimized)</option>
+                                        <option value="mp3">MP3 (Tylko Audio)</option>
+                                        <option value="gif">GIF (Animacja)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Jakość domyślna (CRF)</label>
+                                    <div class="range-wrapper">
+                                        <span class="range-min">HQ</span>
+                                        <input type="range" id="settingDefaultCrf" min="18" max="32" value="23" oninput="this.nextElementSibling.value = this.value">
+                                        <output>23</output>
+                                        <span class="range-max">LQ</span>
+                                    </div>
+                                    <small class="text-muted">Niższa wartość = Wyższa jakość (większy plik).</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-card glass mt-4">
+                        <div class="card-header">
+                            <i class="fas fa-desktop"></i>
+                            <h3>Interfejs i Zachowanie</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Sortowanie domyślne</label>
+                                    <select id="settingSortBy">
+                                        <option value="date">Data (Najnowsze)</option>
+                                        <option value="name">Nazwa (A-Z)</option>
+                                        <option value="size">Rozmiar (Największe)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Motyw</label>
+                                    <select id="settingTheme" disabled>
+                                        <option value="cyber">Deep Cyber Void (Aktywny)</option>
+                                        <option value="light">Light Glass (Wkrótce)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-actions text-right mt-4">
+                        <button class="btn btn-primary" onclick="saveSettings()">
+                            <i class="fas fa-save"></i> Zapisz ustawienia
+                        </button>
+                    </div>
                 </div>
             </div>
         </main>
     </div>
 
-    <!-- Drop Zone Overlay -->
-    <div id="dropZone" class="drop-zone">
+    <div id="dropZone" class="drop-zone-overlay">
         <div class="drop-zone-content">
-            <i class="fas fa-cloud-upload-alt drop-icon"></i>
-            <p>Upuść pliki tutaj, aby dodać do kolejki</p>
+            <i class="fas fa-file-import drop-icon fa-bounce"></i>
+            <h3>Upuść pliki, aby dodać</h3>
         </div>
     </div>
 
-    <!-- Convert Modal -->
     <div id="convertModal" class="modal">
-        <div class="modal-content glass">
+        <div class="modal-content glass fade-in-up">
             <div class="modal-header">
                 <h3 class="modal-title">
-                    <i class="fas fa-magic"></i> Opcje konwersji FFmpeg
+                    <i class="fas fa-wand-magic-sparkles text-accent"></i> 
+                    <span>Konfiguracja Zadania</span>
                 </h3>
-                <button class="close">&times;</button>
+                <button class="close-btn">&times;</button>
             </div>
+            
             <form id="convertForm">
-                <div class="form-group">
-                    <label for="format">Format wyjściowy</label>
-                    <select id="format">
-                        <option value="mp4">MP4 (H.264/AAC)</option>
-                        <option value="webm">WebM (VP9/Opus)</option>
-                        <option value="avi">AVI (MPEG-4)</option>
-                        <option value="mp3">MP3 (Audio only)</option>
-                        <option value="wav">WAV (Audio only)</option>
-                        <option value="gif">GIF (Animated)</option>
-                    </select>
+                <input type="hidden" id="convertTargets">
+
+                <div class="modal-body-scroll">
+                    <div class="form-section">
+                        <label class="section-label">Format wyjściowy</label>
+                        <div class="format-grid">
+                            <label class="format-option">
+                                <input type="radio" name="formatRadio" value="mp4" checked>
+                                <span class="format-card">
+                                    <span class="fmt-icon"><i class="fas fa-video"></i></span>
+                                    <span class="fmt-name">MP4</span>
+                                </span>
+                            </label>
+                            <label class="format-option">
+                                <input type="radio" name="formatRadio" value="webm">
+                                <span class="format-card">
+                                    <span class="fmt-icon"><i class="fab fa-google"></i></span>
+                                    <span class="fmt-name">WebM</span>
+                                </span>
+                            </label>
+                            <label class="format-option">
+                                <input type="radio" name="formatRadio" value="mp3">
+                                <span class="format-card">
+                                    <span class="fmt-icon"><i class="fas fa-music"></i></span>
+                                    <span class="fmt-name">MP3</span>
+                                </span>
+                            </label>
+                            <label class="format-option">
+                                <input type="radio" name="formatRadio" value="gif">
+                                <span class="format-card">
+                                    <span class="fmt-icon"><i class="fas fa-images"></i></span>
+                                    <span class="fmt-name">GIF</span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="resolution"><i class="fas fa-expand"></i> Rozdzielczość</label>
+                            <input type="text" id="resolution" placeholder="Oryginalna (np. 1920x1080)">
+                        </div>
+                        <div class="form-group">
+                            <label for="crf"><i class="fas fa-tachometer-alt"></i> Jakość (CRF)</label>
+                            <div class="input-group">
+                                <input type="number" id="crf" min="0" max="51" value="23">
+                            </div>
+                        </div>
+                    </div>
+
+                    <details class="advanced-options">
+                        <summary>Opcje zaawansowane <i class="fas fa-chevron-down indicator"></i></summary>
+                        <div class="advanced-content glass-inset">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Video Bitrate</label>
+                                    <input type="text" id="bitrate" placeholder="np. 2000k">
+                                </div>
+                                <div class="form-group">
+                                    <label>Audio Bitrate</label>
+                                    <input type="text" id="audioBitrate" placeholder="np. 192k">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Filtry FFmpeg (Raw)</label>
+                                <input type="text" id="advanced" placeholder="np. -vf scale=1280:-1,grayscale">
+                            </div>
+                        </div>
+                    </details>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="resolution">Rozdzielczość</label>
-                        <input type="text" id="resolution" placeholder="1920x1080">
-                    </div>
-                    <div class="form-group">
-                        <label for="crf">CRF (18-28)</label>
-                        <input type="number" id="crf" min="18" max="28" value="23">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="bitrate">Bitrate wideo</label>
-                        <input type="text" id="bitrate" placeholder="2000k">
-                    </div>
-                    <div class="form-group">
-                        <label for="audioBitrate">Bitrate audio</label>
-                        <input type="text" id="audioBitrate" placeholder="128k">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label for="advanced">Zaawansowane opcje (np. -vf crop=...)</label>
-                    <input type="text" id="advanced" placeholder="Opcjonalnie: -vf scale=1280:720">
-                </div>
-                <button type="submit" class="convert-submit">
-                    <i class="fas fa-play"></i> Rozpocznij konwersję
-                </button>
-                <div class="convert-progress">
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="convertProgressFill"></div>
-                    </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost close-modal-btn">Anuluj</button>
+                    <button type="submit" class="btn btn-primary glow-effect">
+                        <i class="fas fa-play"></i> Rozpocznij
+                    </button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Toast Notification -->
-    <div id="toast" class="toast"></div>
+    <div id="detailsModal" class="modal">
+        <div class="modal-content glass details-modal-content fade-in">
+            <div class="modal-header">
+                <h3 class="modal-title" id="detailsTitle">
+                    <i class="fas fa-info-circle"></i> Szczegóły
+                </h3>
+                <button class="close-btn">&times;</button>
+            </div>
+            <div class="details-body" id="detailsBody">
+                </div>
+        </div>
+    </div>
+
+    <div id="playerModal" class="modal">
+        <div class="modal-content glass player-content fade-in">
+            <div class="modal-header player-header">
+                <h3 class="modal-title ellipsis" id="playerFileName">Podgląd</h3>
+                <div class="player-actions">
+                    <button class="btn btn-ghost icon-only" id="playerDownloadBtn" title="Pobierz ten plik">
+                        <i class="fas fa-download"></i>
+                    </button>
+                    <button class="close-btn">&times;</button>
+                </div>
+            </div>
+            <div class="player-viewport" id="playerContainer">
+                </div>
+        </div>
+    </div>
+
+    <div id="toastContainer" class="toast-container"></div>
 
     <script src="main.js"></script>
 </body>
