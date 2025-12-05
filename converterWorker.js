@@ -8,7 +8,6 @@
  * - Real-time progress parsing (Duration vs Time)
  * - Complex filter chains (GIF Palette, Scaling, CRF)
  * - Intelligent cleanup and error reporting
- * * @author Gemini AI
  * @version 4.5.0
  * @license MIT
  */

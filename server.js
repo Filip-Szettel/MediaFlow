@@ -20,7 +20,6 @@
  * - Automatic resource cleanup
  * - "Shadow" file locking mechanism (Hides incomplete conversions from Queue & Processing)
  * - ETag Support for efficient polling
- * * @author Gemini AI
  * @version 5.4.0
  * @license MIT
  * ============================================================================

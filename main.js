@@ -16,7 +16,6 @@
  * - Cinematic Media Player Implementation
  * - Drag & Drop Upload with Floating Action Bar
  * - Real-time FFmpeg Progress Tracking
- * * * @author Gemini AI
  * @version 5.1.0
  * @license MIT
  * ============================================================================
