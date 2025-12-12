@@ -1,0 +1,263 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* DARK THEME (Deep Violet Aesthetic) */
+    --bg-main: #0B0A14;
+    /* Much darker, almost black but with violet undertone */
+    --bg-sidebar: rgba(18, 14, 28, 0.95);
+    --bg-header: rgba(13, 14, 18, 0.85);
+    --bg-panel: rgba(20, 20, 28, 0.6);
+    --bg-overlay: rgba(10, 10, 15, 0.75);
+    /* Dark delicate opacity */
+
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-accent: #c4b5fd;
+    /* violet-300 - brighter against dark violet */
+
+    --border-color: rgba(139, 92, 246, 0.15);
+    /* violet-500 optimized */
+    --border-hover: rgba(139, 92, 246, 0.3);
+
+    --glass-surface: rgba(30, 25, 45, 0.6);
+    --neon-violet: #8b5cf6;
+    --neon-cyan: #22d3ee;
+  }
+
+  .light-theme {
+    /* LIGHT THEME (Vibrant Violet & High Contrast) */
+    --bg-main: #f5f3ff;
+    /* Very light violet-white */
+
+    --bg-sidebar: rgba(255, 255, 255, 0.95);
+    --bg-header: rgba(255, 255, 255, 0.9);
+    --bg-panel: rgba(255, 255, 255, 0.85);
+    --bg-overlay: rgba(255, 255, 255, 0.90);
+    /* Milky white for overlays */
+
+    --text-primary: #2e1065;
+    /* Deep violet-black for text (high contrast) */
+    --text-secondary: #5b21b6;
+    /* Rich violet for secondary text */
+    --text-accent: #7c3aed;
+    /* Vibrant violet for accents */
+
+    --border-color: rgba(139, 92, 246, 0.2);
+    /* Visible accent border */
+    --border-hover: rgba(139, 92, 246, 0.4);
+
+    --glass-surface: rgba(255, 255, 255, 0.7);
+    --neon-violet: #8b5cf6;
+    --neon-cyan: #0891b2;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow: hidden;
+    transition: background-color 0.5s ease, color 0.5s ease;
+
+    /* Dynamic background pattern */
+    background-image:
+      radial-gradient(circle at 10% 20%, rgba(139, 92, 246, 0.08), transparent 40%),
+      radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.05), transparent 40%);
+    background-attachment: fixed;
+  }
+
+  .light-theme body {
+    background-image:
+      radial-gradient(circle at 10% 10%, rgba(139, 92, 246, 0.1), transparent 40%),
+      radial-gradient(circle at 90% 90%, rgba(34, 211, 238, 0.1), transparent 40%);
+  }
+}
+
+@layer components {
+
+  /* --- GLASSMORPHISM SYSTEM --- */
+  .glass-panel {
+    @apply backdrop-blur-2xl shadow-2xl;
+    background-color: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+  }
+
+  .glass-card {
+    @apply transition-all duration-300 backdrop-blur-md;
+    background-color: var(--glass-surface);
+    border: 1px solid var(--border-color);
+  }
+
+  .glass-card:hover {
+    background-color: var(--border-hover);
+    border-color: var(--border-hover);
+  }
+
+  .glass-button {
+    @apply relative overflow-hidden backdrop-blur-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium;
+    background-color: var(--glass-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+  }
+
+  .glass-button:hover {
+    background-color: var(--border-hover);
+    border-color: var(--border-hover);
+  }
+
+  .glass-input {
+    @apply rounded-xl px-4 py-2 outline-none transition-all;
+    background-color: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+  }
+
+  .glass-input::placeholder {
+    color: var(--text-secondary);
+  }
+
+  .glass-input:focus {
+    border-color: var(--neon-violet);
+    background-color: var(--bg-header);
+  }
+
+  .glass-select {
+    @apply rounded-xl px-4 py-2 outline-none transition-all cursor-pointer appearance-none;
+    background-color: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+    padding-right: 2.5rem;
+  }
+
+  .glass-select option {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+  }
+
+  .glass-select:focus {
+    border-color: var(--neon-violet);
+    background-color: var(--bg-header);
+  }
+
+  /* --- TYPOGRAPHY & BADGES --- */
+  .text-glow {
+    text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+  }
+
+  .badge {
+    @apply px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border;
+  }
+
+  /* --- NAVIGATION --- */
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-sm font-medium border border-transparent;
+    color: var(--text-secondary);
+  }
+
+  .nav-item:hover {
+    color: var(--text-primary);
+    background-color: var(--glass-surface);
+  }
+
+  .nav-item.active {
+    @apply bg-violet-600/10 border-violet-500/20;
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
+    color: var(--text-accent);
+  }
+
+  /* --- CUSTOM SCROLLBAR --- */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.2);
+    border-radius: 10px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--text-accent);
+  }
+}
+
+@layer utilities {
+  .bg-theme-main {
+    background-color: var(--bg-main);
+  }
+
+  .bg-theme-sidebar {
+    background-color: var(--bg-sidebar);
+  }
+
+  .bg-theme-header {
+    background-color: var(--bg-header);
+  }
+
+  .text-theme-primary {
+    color: var(--text-primary);
+  }
+
+  .text-theme-secondary {
+    color: var(--text-secondary);
+  }
+
+  .border-theme {
+    border-color: var(--border-color);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* --- ANIMATIONS --- */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4);
+  }
+
+  70% {
+    box-shadow: 0 0 0 10px rgba(139, 92, 246, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(139, 92, 246, 0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2s infinite;
+}
